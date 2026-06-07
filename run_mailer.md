@@ -104,7 +104,7 @@ run_mailer_today_only.bat   → python run_mailer.py --today-only
 ### 1회성 등록
 
 ```cmd
-schtasks /create /tn "mailer_test_once" /tr "\"C:\Users\user_name\OneDrive - test Corporation\pjh\2.data\99.PY,SQL-250429\00.py_notebook\run_mailer_latest.bat\"" /sc once /st HH:MM /it /f
+schtasks /create /tn "mailer_test_once" /tr "\"C:\Users\user_name\OneDrive - company_name\pjh\2.data\99.PY,SQL-250429\00.py_notebook\run_mailer_latest.bat\"" /sc once /st HH:MM /it /f
 ```
 
 ```cmd
@@ -118,13 +118,13 @@ schtasks /delete /tn "mailer_test_once" /f
 ### 매일 반복 등록
 
 ```cmd
-schtasks /create /tn "auto_mailing_260317" /tr "\"C:\Users\user_name\OneDrive - test Corporation\pjh\2.data\99.PY,SQL-250429\00.py_notebook\run_mailer_latest.bat\"" /sc daily /st HH:MM /it /f
+schtasks /create /tn "auto_mailing_260317" /tr "\"C:\Users\user_name\OneDrive - company_name\pjh\2.data\99.PY,SQL-250429\00.py_notebook\run_mailer_latest.bat\"" /sc daily /st HH:MM /it /f
 ```
 
 예시 — 2026/03/17 14시 시작, 2026/03/23 14시 마지막 발송:
 
 ```cmd
-schtasks /create /tn "auto_mailing_260317" /tr "\"C:\Users\user_name\OneDrive - test Corporation\pjh\2.data\99.PY,SQL-250429\00.py_notebook\run_mailer_latest.bat\"" /sc daily /st 14:00 /sd 2026/03/17 /ed 2026/03/23 /it /f
+schtasks /create /tn "auto_mailing_260317" /tr "\"C:\Users\user_name\OneDrive - company_name\pjh\2.data\99.PY,SQL-250429\00.py_notebook\run_mailer_latest.bat\"" /sc daily /st 14:00 /sd 2026/03/17 /ed 2026/03/23 /it /f
 ```
 
 ### 관리 명령어
