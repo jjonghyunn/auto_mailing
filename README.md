@@ -1,4 +1,5 @@
-# Auto Mailing
+# Auto Mailing  
+<sub>2026-06-09  Jonghyun Park w/ Claude</sub>  
 
 특정 폴더의 엑셀 파일을 날짜 기준으로 자동 선택하여 이메일로 발송하는 Python 스크립트입니다.
 

@@ -1,4 +1,5 @@
-# run_mailer — xlsx 자동 발송 스크립트
+# run_mailer — xlsx 자동 발송 스크립트  
+<sub>2026-06-09  Jonghyun Park w/ Claude</sub>  
 
 `Downloads/mailing_test` 폴더의 xlsx 파일을 Outlook으로 자동 발송합니다.
 
