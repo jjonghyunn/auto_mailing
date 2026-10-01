@@ -1,7 +1,14 @@
 # Auto Mailing  
-<sub>2026-06-09  Jonghyun Park w/ Claude</sub>  
+<sub>2026-10-01  Jonghyun Park w/ Claude</sub>  
 
-특정 폴더의 엑셀 파일을 날짜 기준으로 자동 선택하여 이메일로 발송하는 Python 스크립트입니다.
+엑셀·메일 반복 업무를 작업 스케줄러에 걸어두고 돌리는 Python 스크립트 모음입니다.
+
+| 위치 | 내용 |
+|---|---|
+| 루트 (`run_mailer.py`) | 특정 폴더의 엑셀 파일을 날짜 기준으로 자동 선택하여 이메일로 **발송** |
+| [`schedule_automation/`](schedule_automation/) | 메일함을 지켜보다 첨부를 **받아서** 리포트 워크북에 반영 — 상세는 [`schedule_automation/README.md`](schedule_automation/README.md) |
+
+아래는 루트의 `run_mailer.py` 설명입니다.
 
 ## Features
 
@@ -18,8 +25,10 @@
 - pywin32 (Outlook COM 방식 사용 시)
 
 ```bash
-pip install pywin32
+pip install -r requirements.txt
 ```
+
+`schedule_automation/` 은 `openpyxl` 과 Excel 도 필요합니다.
 
 ## Usage
 
