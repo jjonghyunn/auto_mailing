@@ -1,10 +1,10 @@
 """
 update_schedule.py
+2026-10-06  Jonghyun Park w/ Claude  — excel.Quit() 지연 바인딩 AttributeError 무시 + DispatchEx 로 별도 Excel 인스턴스 사용
 2026-10-01  Jonghyun Park w/ Claude  — SKIP 판정을 마커 대신 Auto 파일 실제 저장내용으로 전환 (target_is_saved)
                                        + 저장 직후 재검증을 통과했을 때만 마커 기록 + --force 옵션
                                        + 소스의 세로 병합 셀(여러 법인이 Participation 'O' 한 칸을 공유) 값을
                                          병합된 모든 행에 채움 (FILL_MERGED_COLS)
-2026-08-11  Jonghyun Park w/ Claude  — win32com 지연 바인딩에서 wb_com.Close() 가 TypeError 로 죽는 문제 방어
 (이전 버전 이력은 git history / GitHub Releases 참조 — 헤더에는 최근 2개 항목만 남긴다)
 
 1. 1.고객 법인 일정 파일/ 폴더에서 최신 파일 자동 선택
@@ -421,7 +421,7 @@ except PermissionError:
     exit(0)
 
 # Excel로 열어서 전체 재계산 후 저장 (FILTER/SORT 등 동적 배열 함수 반영)
-excel = win32com.client.Dispatch("Excel.Application")
+excel = win32com.client.DispatchEx("Excel.Application")   # 별도 인스턴스 — 사용자가 열어 둔 Excel 에 붙지 않게
 excel.Visible = False
 excel.DisplayAlerts = False      # Close/Quit 시 저장 확인 팝업 방지 (스케줄러 실행 대비)
 try:
@@ -439,7 +439,11 @@ try:
     except (TypeError, AttributeError):
         pass
 finally:
-    excel.Quit()
+    # Quit 도 지연 바인딩에서 AttributeError('Excel.Application.Quit') 로 죽는다 (2026-10-06 확인) — 저장은 끝난 뒤라 무시.
+    try:
+        excel.Quit()
+    except (TypeError, AttributeError):
+        pass
 
 # 저장 직후 재검증 — 마커는 여기를 통과했을 때만 기록한다.
 # ※ 저장이 외부(Excel/OneDrive)에 의해 되돌려진 경우를 즉시 드러내기 위한 단계.

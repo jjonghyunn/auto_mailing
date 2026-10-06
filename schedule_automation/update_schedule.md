@@ -34,6 +34,8 @@
 6. 이전 소스 파일과 비교해 변경된 셀에 노란 음영 표시
 7. win32com으로 Excel을 백그라운드 실행 → `CalculateFull()` → 재계산된 상태로 저장
    - `wb_com.Close()` 는 `try/except TypeError` 로 감싸져 있다 — `%TEMP%\gen_py\<파이썬버전>\` 타입라이브러리 캐시가 없으면(파이썬을 새로 깔면 비어 있음) win32com 이 **지연 바인딩**으로 동작해 `wb_com.Close` **속성 접근만으로 COM 메서드가 실행**되고 `True` 가 반환된다 → 이어지는 `()` 가 `TypeError: 'bool' object is not callable`. 그 시점엔 저장·닫기가 이미 끝났지만 **다음 줄인 마커 기록이 안 돼서** 다음 실행이 같은 소스를 재처리한다. `%TEMP%` 캐시는 디스크 정리로 언제든 사라지므로 gen_py 재생성이 아니라 코드로 막는다.
+   - 같은 이유로 `excel.Quit()` 도 `try/except (TypeError, AttributeError)` 로 감싼다 — 지연 바인딩에서 `AttributeError: Excel.Application.Quit` 로 죽어 저장 후 재검증·마커 기록이 건너뛰어진 사례가 있다.
+   - Excel 은 `DispatchEx` 로 **전용 인스턴스**를 띄운다. `Dispatch` 는 사용자가 열어 둔 Excel 에 붙을 수 있어, 그 창을 숨기거나 `Quit` 로 닫아 버릴 위험이 있다.
 8. 저장 직후 Auto 파일을 다시 읽어 검증 → **통과했을 때만** 마커 파일에 소스 파일명·mtime 기록
 
 ### 재실행 판정
