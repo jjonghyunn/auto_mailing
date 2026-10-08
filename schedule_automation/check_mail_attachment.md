@@ -1,5 +1,5 @@
 # check_mail_attachment — 첨부파일 자동 감지·저장  
-<sub>2026-08-20  Jonghyun Park w/ Claude</sub>  
+<sub>2026-10-08  Jonghyun Park w/ Claude</sub>  
 
 Outlook 메일함을 주기적으로 훑어 **조건에 맞는 첨부파일만** 지정 폴더에 내려받는 스크립트 모음.
 [`mail_search`](https://github.com/jjonghyunn/mail_search) repo 의 `mail_search_to_msg.py` 가 "찾아서 한 번 받아오는" 도구라면, 이쪽은 **작업 스케줄러에 걸어두고
@@ -72,6 +72,7 @@ RULES 순서가 곧 우선순위가 된다. 순서를 바꾸면 어디에 저장
 | `SUBJECT_KEYS` (`_url`) | 메일 제목 조건 |
 | `RECEIVED_FROM` / `RECEIVED_TO` | 수신일 범위 |
 | `ALLOWED_EXT` (`_url`) | 저장할 확장자 |
+| `ALLOWED_EXTS` (`_status`) | 저장할 확장자 튜플 — 기본 `(".xlsx", ".xlsm")`. 보내는 쪽이 매크로 포함 xlsm 으로 바꿔도 조용히 누락되지 않게 둘 다 받는다 |
 | `MARKER_FILE` | 처리한 메일 EntryID 기록 파일 |
 
 ### 키워드 조건 읽는 법

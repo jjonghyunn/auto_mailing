@@ -1,9 +1,10 @@
 """
 check_mail_attachment_status.py
-2026-07-22  Jonghyun Park w/ Claude  — 중복 suffix _yymmdd → _yymmdd_HHMM
+2026-10-08  Jonghyun Park w/ Claude  — .xlsm 첨부도 저장 (ALLOWED_EXTS). 보내는 쪽이 매크로 포함 .xlsm 으로 바꾸면 .xlsx 만 보던 필터에 조용히 누락된다
 2026-08-19  Jonghyun Park w/ Claude  — public repo 공개판 (설정값 placeholder 화)
+(이전 이력은 git history 참조 — 헤더에는 최근 2개만 남긴다)
 
-team_name mailbox 받은편함에서 ATTACHMENT_KEYS 조건에 맞는 xlsx 첨부파일을 감지해 저장.
+team_name mailbox 받은편함에서 ATTACHMENT_KEYS 조건에 맞는 xlsx/xlsm 첨부파일을 감지해 저장.
 - 이미 처리한 메일은 EntryID로 기록해 재처리 방지
 - 같은 파일명이 있으면 수신일시(_yymmdd_HHMM) 붙여 저장
 - SaveAsFile은 MAX_PATH 제한으로 임시폴더에 저장 후 shutil.move로 이동
@@ -23,6 +24,7 @@ SAVE_FOLDER  = Path(
 )
 STORE_NAME   = "team_name mailbox"
 ATTACHMENT_KEYS = ["Status", "campaign name"]  # 첨부파일명에 모두 포함되어야 통과 (소문자 매칭)
+ALLOWED_EXTS    = (".xlsx", ".xlsm")        # 저장할 첨부 확장자 (소문자 튜플) — 매크로 포함 xlsm 으로 오는 경우도 받는다
 RECEIVED_FROM   = date(2026, 6, 18)         # 이 날짜(받은날짜) 이상 메일만 처리 — 캠페인 바뀌면 갱신
 MARKER_FILE     = SAVE_FOLDER / "_processed_ids.txt"
 
@@ -79,7 +81,7 @@ for mail in inbox.Items:
 
     for att in mail.Attachments:
         name = att.FileName
-        if not name.lower().endswith(".xlsx"):
+        if not name.lower().endswith(ALLOWED_EXTS):
             continue
         if ATTACHMENT_KEYS and not all(k.lower() in name.lower() for k in ATTACHMENT_KEYS):
             continue
