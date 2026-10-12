@@ -17,6 +17,7 @@ Outlook 메일함을 주기적으로 훑어 **조건에 맞는 첨부파일만**
 | 첨부파일명 조건 | 룰별 `attachment_keys` | `ATTACHMENT_KEYS` | `ATTACHMENT_KEYS` |
 | 수신일 필터 | 룰별 `received_from` ~ `received_to` | `RECEIVED_FROM` 이후 | `RECEIVED_FROM` ~ `RECEIVED_TO` |
 | 처리 이력 마커 | **룰마다 따로** | 저장 폴더 안 | 저장 폴더 안 |
+| 저장 파일명 | 수신일시 prefix (`yymmdd_hhmm_`) | 수신일시 prefix (`yymmdd_hhmm_`) | 원본명, 같은 이름이 있을 때만 `_yymmdd_HHMM` suffix |
 
 - **`_byname`** — 첨부파일명만 보고 판단. 제목이 매번 다르게 오는 메일에 쓴다.
   **여러 종류의 첨부를 한 스크립트가 받는다** (아래 RULES 참고).
@@ -97,7 +98,7 @@ ATTACHMENT_KEYS = ["campaign name", ["Campaign", "캠페인"]]
 
 ### 저장 파일명 — 수신일시를 맨 앞에
 
-`_byname` 은 충돌 여부와 무관하게 **파일명 맨 앞**에 수신일시를 붙인다.
+`_byname` 과 `_status` 는 충돌 여부와 무관하게 **파일명 맨 앞**에 수신일시를 붙인다 (`_status` 는 2026-10-12 부터 — 그전엔 같은 이름이 있을 때만 뒤에 `_yymmdd_HHMM` 을 붙였다).
 
 ```
 첨부 원본명 : Report_20260409_v2.xlsx
