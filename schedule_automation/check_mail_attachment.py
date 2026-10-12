@@ -1,11 +1,13 @@
 """
 check_mail_attachment.py
+2026-10-12  Jonghyun Park w/ Claude  — 저장명 앞에 수신일시(yymmdd_hhmm_) prefix 를 항상 붙인다 (기존: 중복일 때만 뒤에 _yymmdd_HHMM)
+                                       + RECEIVED_FROM: 지정 날짜(당일 포함) 이후 받은 메일만 처리 — 캠페인 폴더를 복사해 쓸 때 지난 캠페인 메일 재수집 방지
 2026-07-22  Jonghyun Park w/ Claude  — 중복 suffix _yymmdd → _yymmdd_HHMM
+(이전 버전 이력은 git history / GitHub Releases 참조 — 헤더에는 최근 2개 항목만 남긴다)
 
 [mailbox] 받은편함에서 CAMPAIGN NAME 법인별 일정 첨부파일을 감지해 저장.
 - 이미 처리한 메일은 EntryID로 기록해 재처리 방지
-- 같은 파일명이 있으면 수신일시(_yymmdd_HHMM) 붙여 저장
-  ※ 이 폴더는 update_schedule.py 가 읽는 소스 폴더 — 시각까지 붙어야 최신 판정이 갈림
+- 저장명 앞에 수신일시(yymmdd_hhmm_) 를 붙여 저장 (같은 이름이 다시 와도 수신 시각으로 구분)
 - SaveAsFile은 MAX_PATH 제한으로 임시폴더에 저장 후 shutil.move로 이동
 """
 
@@ -13,7 +15,7 @@ import win32com.client
 import shutil
 import tempfile
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date
 
 SAVE_FOLDER  = Path(
     r"C:\Users\user_name\OneDrive - company_name"
@@ -23,7 +25,10 @@ SAVE_FOLDER  = Path(
 )
 STORE_NAME   = "part_name mailbox"
 SUBJECT_KEYS = ["campaign name", "법인별"]  # 모두 포함된 메일만
-MARKER_FILE  = Path(r"C:\Users\user_name\Documents\sw_mail_processed_ids.txt")
+MARKER_FILE  = Path(r"C:\Users\user_name\Documents\campaign_mail_processed_ids.txt")
+# 받은 날짜가 이 날짜 이상인 메일만 처리 — **이 날짜 당일 포함** (예: 9/29 → 9/29 받은 메일부터). None = 전체
+# 지난 캠페인 폴더를 복사해 새 캠페인을 시작할 때, 같은 키워드의 옛 메일을 다시 집어오지 않게 캠페인 시작일을 넣는다.
+RECEIVED_FROM = date(2026, 1, 1)
 
 # ── 긴 경로 존재 확인 (\\?\ 접두사 사용) ──────────────────────
 def long_path_exists(p: Path) -> bool:
@@ -67,13 +72,16 @@ for mail in inbox.Items:
     if not all(k in subject for k in SUBJECT_KEYS):
         continue
 
+    if RECEIVED_FROM:
+        rt = mail.ReceivedTime
+        if date(rt.year, rt.month, rt.day) < RECEIVED_FROM:
+            continue
+
     if entry_id in processed_ids:
         skipped += 1
         continue
 
     mail_saved = False
-    # 중복 파일명에 붙일 수신일시. 날짜만(_yymmdd) 쓰면 같은 날 두 번 온 파일이
-    # 이름 충돌로 스킵되어 유실 + update_schedule.py 최신 판정이 동점 → 시각(_HHMM)까지 (2026-07-22)
     received = datetime.strftime(mail.ReceivedTime, "%y%m%d_%H%M")
 
     for att in mail.Attachments:
@@ -81,36 +89,23 @@ for mail in inbox.Items:
         if not name.lower().endswith(".xlsx"):
             continue
 
-        dest = SAVE_FOLDER / name
+        # 저장명 = 수신일시(yymmdd_hhmm_) + 원본 첨부명 — 같은 이름이 다시 와도 수신 시각으로 구분된다
+        suffix = Path(name).suffix
+        dest   = SAVE_FOLDER / f"{received}_{Path(name).stem}{suffix}"
 
-        # 이미 같은 파일명 존재 → 날짜 붙인 이름으로
+        # 같은 수신일시 + 같은 이름이 이미 있음 = 같은 메일 재처리 → 스킵
         if long_path_exists(dest):
-            stem     = Path(name).stem
-            suffix   = Path(name).suffix
-            new_name = f"{stem}_{received}{suffix}"
-            dest     = SAVE_FOLDER / new_name
+            print(f"[스킵] 이미 처리됨: {dest.name}")
+            skipped += 1
+            mail_saved = True   # 이미 저장된 것으로 간주 → EntryID 기록
+            continue
 
-            # 날짜 붙인 파일도 이미 존재 → 완전 스킵
-            if long_path_exists(dest):
-                print(f"[스킵] 이미 처리됨: {new_name}")
-                skipped += 1
-                mail_saved = True   # 이미 저장된 것으로 간주 → EntryID 기록
-                continue
-
-            # 임시폴더 저장 후 이동
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                tmp_path = Path(tmp.name)
-            att.SaveAsFile(str(tmp_path))
-            shutil.move(str(tmp_path), str(dest))
-            print(f"[저장-중복] {name} → {new_name} (수신일: {received})")
-        else:
-            # 임시폴더 저장 후 이동
-            suffix = Path(name).suffix
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                tmp_path = Path(tmp.name)
-            att.SaveAsFile(str(tmp_path))
-            shutil.move(str(tmp_path), str(dest))
-            print(f"[저장] {name}")
+        # 임시폴더 저장 후 이동
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        att.SaveAsFile(str(tmp_path))
+        shutil.move(str(tmp_path), str(dest))
+        print(f"[저장] {name} → {dest.name}")
 
         saved += 1
         mail_saved = True
