@@ -1,15 +1,17 @@
 """
 update_schedule.py
+2026-10-12  Jonghyun Park w/ Claude  — 저장명 앞 수신일시 prefix(yymmdd_hhmm_)가 있으면 그것만으로 최신 판정 (뒤 suffix 방식과 공존)
+                                       + 소스에서 헤더가 Note 인 칼럼을 찾아 타겟 J열로 옮김 (NOTE_HEADER / NOTE_TARGET_COL)
+                                       + AUTO_FILE_NAME 으로 대상 Auto 파일 고정 가능 (빈 값이면 종전처럼 *Auto*.xlsx 자동 탐색)
+                                       + 소스 폴더가 비어 있으면 에러 대신 [SKIP] 으로 종료 (캠페인 초반 메일 도착 전 상태)
 2026-10-06  Jonghyun Park w/ Claude  — excel.Quit() 지연 바인딩 AttributeError 무시 + DispatchEx 로 별도 Excel 인스턴스 사용
-2026-10-01  Jonghyun Park w/ Claude  — SKIP 판정을 마커 대신 Auto 파일 실제 저장내용으로 전환 (target_is_saved)
-                                       + 저장 직후 재검증을 통과했을 때만 마커 기록 + --force 옵션
-                                       + 소스의 세로 병합 셀(여러 법인이 Participation 'O' 한 칸을 공유) 값을
-                                         병합된 모든 행에 채움 (FILL_MERGED_COLS)
 (이전 버전 이력은 git history / GitHub Releases 참조 — 헤더에는 최근 2개 항목만 남긴다)
 
 1. 1.고객 법인 일정 파일/ 폴더에서 최신 파일 자동 선택
-   - 정렬 기준: 파일명 내 날짜(YYMMDD) → 버전(_vX.XX) → 끝 번호(_2 등) → 메일수신 일시
-2. 소스 파일 첫 번째 시트 B3:J(마지막 데이터 행) 값 읽기  ※ 범위는 상단 SRC_* 상수
+   - 저장명 앞에 수신일시 prefix(yymmdd_hhmm_)가 있으면 그것만으로 판정
+   - 없으면 파일명 내 날짜(YYMMDD) → 버전(_vX.XX) → 끝 번호(_2 등) → 메일수신 suffix(_yymmdd_HHMM)
+2. 소스 파일 첫 번째 시트 B3:K(마지막 데이터 행) 값 읽기  ※ 범위는 상단 SRC_* 상수
+   - 헤더가 Note 인 칼럼은 타겟 J열로 옮긴다 (밀려난 칼럼은 오른쪽으로)
    - datetime → yyyy-mm-dd 문자열 변환
    - WEEKNUM 수식 셀 → W01 형식 변환
    - FILL_MERGED_COLS 열의 세로 병합 셀은 병합된 모든 행에 같은 값을 채운다
@@ -42,6 +44,10 @@ CHANGED_FILL = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="
 NO_FILL      = PatternFill(fill_type=None)
 
 
+# 저장명 앞 수신일시 prefix — 첨부를 항상 `yymmdd_hhmm_<원본명>` 으로 저장하는 감시 스크립트와 짝
+MAIL_PREFIX_PAT = re.compile(r'^(\d{6})_(\d{4})_')
+
+
 # ── 최신 파일 정렬 키 ────────────────────────────────────────
 def mail_stamp_key(date6: str | None, hhmm: str | None) -> int:
     """메일수신 일시(YYMMDD[_HHMM])를 정렬 가능한 정수 하나로 합침.
@@ -67,8 +73,16 @@ def latest_file_key(f: Path):
 
     B형 (6자리 날짜 + vX.XX 버전):
       _vX.XX_YYMMDD[_YYMMDD_HHMM]    → (doc_date6, 0, ver_float, suffix, mail)
+
+    수신일시 prefix (첨부를 항상 prefix 붙여 저장하는 감시 스크립트 변형):
+      yymmdd_hhmm_<원본명>           → (20yymmdd, hhmm, 0, 0, 0)  — 원본명 안의 날짜·버전은 보지 않는다
     """
     name = f.stem
+
+    # 수신일시 prefix 가 있으면 그것만으로 최신 판정 (8자리로 맞춰 prefix 없는 A형 파일과도 비교 가능)
+    mp = MAIL_PREFIX_PAT.match(name)
+    if mp:
+        return (20000000 + int(mp.group(1)), int(mp.group(2)), 0.0, 0, 0)
 
     # 메일 suffix 공통 꼬리: _YYMMDD 또는 _YYMMDD_HHMM (둘 다 없어도 됨)
     MAIL_TAIL = r'(?:_(\d{6})(?:_(\d{4}))?)?'
@@ -116,14 +130,20 @@ BASE = Path(
 )
 
 SOURCE_FOLDER    = BASE / "1.고객 법인 일정 파일"
+# 업데이트 대상 Auto 파일 — 폴더에 *Auto* 파일이 여러 개 생겨도 이 파일만 건드린다 (빈 값이면 *Auto*.xlsx 자동 탐색)
+AUTO_FILE_NAME   = ""
 TARGET_SHEET     = "고객법인일정파일"
 LAST_SOURCE_FILE = BASE / "schedule_last_source.txt"  # 마커: Auto 파일과 같은 폴더 (프로젝트별 독립 관리. 다른 캠페인으로 fork 시 BASE만 교체하면 마커도 따라감)
 
 # ── 읽기 / 붙여넣기 범위 ─────────────────────────────────────
 # 소스 일정표의 열 구성이 바뀌면 여기 숫자만 고치면 된다 (함수 본문엔 숫자를 박지 않는다).
 SRC_MIN_COL   = 2    # B (Global)
-SRC_MAX_COL   = 10   # J — 1세트 구성 기준
-SRC_MIN_ROW   = 3    # 소스 데이터 시작 행
+SRC_MAX_COL   = 11   # K — 1세트 구성 기준 (B~J 일정 + K Note). 고객 파일 포맷이 넓어지면 여기만 늘린다
+SRC_MIN_ROW   = 3    # 소스 데이터 시작 행 (헤더 포함)
+# Note 칼럼 위치 보정 — 고객 파일에 칼럼이 끼어들어 Note 위치가 바뀌어도(예: Days 추가로 J → K) 타겟에서는 항상 같은 열에 오게 한다.
+NOTE_HEADER      = "Note"  # 이 헤더의 칼럼이 소스에 있으면 타겟 NOTE_TARGET_COL 로 옮긴다 (대소문자 무시). 빈 값이면 미사용
+NOTE_TARGET_COL  = 10      # J열
+NOTE_HEADER_ROWS = 5       # 읽은 행 중 앞쪽 몇 행까지 헤더로 보고 NOTE_HEADER 를 찾을지
 TGT_START_ROW = 2    # 타겟 붙여넣기 시작 행 (소스 행 - 1)
 TGT_MAX_ROW   = 999  # 클리어 범위 하단
 TGT_MIN_COL   = 2    # B
@@ -242,16 +262,23 @@ def target_is_saved(output_file: Path, source_name: str, src_data: list) -> tupl
 
 
 # ── Auto 파일 자동 탐색 ──────────────────────────────────────
-auto_files = list(BASE.glob("*Auto*.xlsx"))
-if not auto_files:
-    raise FileNotFoundError(f"Auto 파일을 찾을 수 없습니다: {BASE}")
-output_file = auto_files[0]
+if AUTO_FILE_NAME:
+    output_file = BASE / AUTO_FILE_NAME
+    if not output_file.exists():
+        raise FileNotFoundError(f"Auto 파일을 찾을 수 없습니다: {output_file}")
+else:
+    auto_files = list(BASE.glob("*Auto*.xlsx"))
+    if not auto_files:
+        raise FileNotFoundError(f"Auto 파일을 찾을 수 없습니다: {BASE}")
+    output_file = auto_files[0]
 print(f"[업데이트 대상] {output_file.name}")
 
 # ── 소스 폴더에서 최신 파일 선택 ────────────────────────────
-xlsx_files = sorted(SOURCE_FOLDER.glob("*.xlsx"), key=latest_file_key)
+xlsx_files = sorted((f for f in SOURCE_FOLDER.glob("*.xlsx") if not f.name.startswith("~$")), key=latest_file_key)
 if not xlsx_files:
-    raise FileNotFoundError(f"소스 폴더에 xlsx 파일이 없습니다: {SOURCE_FOLDER}")
+    # 캠페인 초반엔 일정 메일이 아직 안 와서 폴더가 빈 게 정상 — 에러로 끝내지 않고 다음 실행을 기다린다
+    print(f"[SKIP] 소스 파일이 아직 없습니다: {SOURCE_FOLDER}")
+    exit(0)
 
 source_file = xlsx_files[-1]
 print(f"[소스 파일] {source_file.name}")
@@ -302,6 +329,27 @@ for row in src_ws.iter_rows(min_row=SRC_MIN_ROW, min_col=SRC_MIN_COL, max_col=SR
 
 src_wb.close()
 print(f"[읽은 행 수] {len(src_data)}행")
+
+# ── Note 칼럼을 타겟 J열 위치로 이동 ─────────────────────────
+# 밀려난 칼럼(Days 등)은 한 칸씩 오른쪽으로 간다. 변경 비교(COMPARE: E/F/H)는 Note 보다 왼쪽이라 영향 없음.
+if NOTE_HEADER:
+    note_idx = None
+    for row_data in src_data[:NOTE_HEADER_ROWS]:
+        for i, v in enumerate(row_data):
+            if isinstance(v, str) and v.strip().lower() == NOTE_HEADER.lower():
+                note_idx = i
+                break
+        if note_idx is not None:
+            break
+    note_tgt_idx = NOTE_TARGET_COL - SRC_MIN_COL
+    if note_idx is None:
+        print(f"[Note] 헤더 '{NOTE_HEADER}' 없음 - 칼럼 순서 그대로 붙여넣음")
+    elif note_idx == note_tgt_idx:
+        print(f"[Note] 이미 타겟 위치({get_column_letter(NOTE_TARGET_COL)}열)")
+    else:
+        for row_data in src_data:
+            row_data.insert(note_tgt_idx, row_data.pop(note_idx))
+        print(f"[Note] 소스 {get_column_letter(SRC_MIN_COL + note_idx)}열 → 타겟 {get_column_letter(NOTE_TARGET_COL)}열로 이동")
 
 # ── 재실행 판정 — 마커(로그)가 아니라 Auto 파일에 실제 저장된 내용으로 ──
 # ※ 마커는 '처리 완료' 기록·경고용으로만 남긴다. 판정에 쓰면 저장이 유실됐을 때 영원히 SKIP 된다.

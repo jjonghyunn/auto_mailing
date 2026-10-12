@@ -1,5 +1,5 @@
 # update_schedule.py · check_mail_attachment.py  
-<sub>2026-10-01  Jonghyun Park w/ Claude</sub>  
+<sub>2026-10-12  Jonghyun Park w/ Claude</sub>  
 
 ## 개요
 캠페인 법인별 일정 파일을 자동으로 Auto 정제 파일에 붙여넣는 스크립트.
@@ -22,8 +22,9 @@
 > 📄 정제 대상 Auto 파일의 시트 구조 상세: [`26_Schedule_separate(Auto).md`](<26_Schedule_separate(Auto).md>) (한글판: [`26_Schedule_separate(Auto)-kr.md`](<26_Schedule_separate(Auto)-kr.md>))
 
 ## 동작 순서
-1. `1.고객 법인 일정 파일/` 폴더에서 최신 파일 자동 선택
-2. 소스 파일 첫 번째 시트 **B3:J** 값 읽기 (범위는 스크립트 상단 `SRC_MIN_ROW` / `SRC_MIN_COL` / `SRC_MAX_COL`)
+1. `1.고객 법인 일정 파일/` 폴더에서 최신 파일 자동 선택 (아래 "최신 파일 선택 기준"). 폴더가 비어 있으면 에러 대신 `[SKIP]` 으로 끝난다 — 캠페인 초반 메일 도착 전 상태
+2. 소스 파일 첫 번째 시트 **B3:K** 값 읽기 (범위는 스크립트 상단 `SRC_MIN_ROW` / `SRC_MIN_COL` / `SRC_MAX_COL`)
+   - 헤더가 `Note` 인 칼럼은 위치와 무관하게 타겟 **J열**로 옮기고, 밀려난 칼럼(Days 등)은 오른쪽으로 민다 (`NOTE_HEADER` / `NOTE_TARGET_COL`) — 고객이 Days 칼럼을 끼워 넣어 Note 가 J → K 로 밀려도 Auto 쪽 위치가 유지된다
    - `FILL_MERGED_COLS`(기본 E열 Participation) 열에서 **세로로 병합된 셀**은 병합된 모든 행에 같은 값을 채워 읽는다 —
      법인 여러 곳이 `O` 한 칸을 공유하는 일정표에서 아래쪽 법인이 빈칸으로 들어가던 문제 방지
 3. **Auto 파일에 그 결과가 실제로 저장돼 있는지 확인** → 이미 반영돼 있으면 `[SKIP]` 으로 종료 (아래 "재실행 판정")
@@ -59,6 +60,17 @@
 ```python
 (doc_date, hhmm, ver_float, ver_int, mail_date)
 ```
+
+### 수신일시 prefix — `yymmdd_hhmm_` 로 시작 (최우선)
+
+감시 스크립트 변형 중에는 첨부를 **항상** `yymmdd_hhmm_<원본명>` 으로 저장하는 것이 있다. 이 prefix 가 있으면
+**그것만으로** 최신을 판정한다 (원본명 안의 날짜·버전은 보지 않음). 8자리로 맞춰 두어 prefix 없는 A형 파일과도 같은 축에서 비교된다.
+
+| 패턴 | 예시 | 정렬 키 |
+|---|---|---|
+| `yymmdd_hhmm_<원본명>` | `260930_1953_···일정_0930` | `(20260930, 1953, 0, 0, 0)` |
+
+아래 A형·B형은 prefix 없는 파일(같은 이름 재수신 시에만 suffix 를 붙이는 감시 스크립트, 수동 저장 등)에 적용된다.
 
 ### A형 — 8자리 날짜(YYYYMMDD) 포함
 
@@ -131,7 +143,7 @@ _v0.49_260420   → (260420, 0, 0.49, 0, 0)  ← 최신
 | 구분 | 경로 |
 |---|---|
 | 소스 폴더 | `02. SCHEDULE/1.고객 법인 일정 파일/` |
-| 업데이트 대상 | `02. SCHEDULE/*Auto*.xlsx` (자동 탐색) |
+| 업데이트 대상 | `02. SCHEDULE/*Auto*.xlsx` (자동 탐색). 폴더에 Auto 파일이 여러 개면 `AUTO_FILE_NAME` 에 파일명을 박아 고정 |
 | 마커 파일 | `BASE/schedule_last_source.txt` — `파일명\|mtime` 형식으로 저장 (Auto 파일과 같은 폴더에 두어 프로젝트별 독립 관리. 다른 캠페인으로 fork 시 BASE만 교체하면 마커도 따라감). **기록·경고용** — SKIP 판정은 Auto 파일 내용으로 한다 |
 
 ## 실행 방법
