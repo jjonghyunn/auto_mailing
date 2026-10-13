@@ -1,5 +1,5 @@
 # schedule_automation — 메일 첨부 감시 → 워크북 자동 반영  
-<sub>2026-10-01  Jonghyun Park w/ Claude</sub>  
+<sub>2026-10-13  Jonghyun Park w/ Claude</sub>  
 
 메일함에 새 일정 파일이 오는지 지켜보다가, 오면 받아서 리포트 워크북에 반영하고
 지난번과 달라진 칸에 음영을 칠하는 데까지가 한 묶음이다.
@@ -29,6 +29,7 @@
 | `update_schedule_summary.py` | 최신 소스 선별 → 요약 시트 정제 → 워크북 반영 → 변경 셀 음영 → 강제 재계산 |
 | `update_schedule_summary.md` | 위 스크립트 가이드 |
 | `26_Schedule(Auto)_example.xlsx` | 반영 대상 워크북이 어떻게 생겼는지 보여주는 예시 |
+| `export_master_schedule.py` | 고객 일정 파일 → site_code 별 기간 CSV 스냅샷 (메일 수신 회차 단위) |
 | `create_schtasks_v2.txt` | 작업 스케줄러 등록 명령어 + 실행 시각 배치 |
 | `check_mail_attachment.py` | (앞 세대) 첨부 감시 — **메일 제목** 키워드 |
 | `update_schedule.py` | (앞 세대) 요약 정제 단계 없이 일정 시트를 그대로 워크북에 반영 |
@@ -81,6 +82,31 @@
 Excel 은 무인 실행에서 대화상자를 띄우면 사람이 닫을 때까지 멈춰 선다. `DisplayAlerts` 만으로는
 링크 갱신·읽기전용 권장·'파일 사용 중' 이 안 막혀서, 전용 인스턴스 설정 + `Workbooks.Open(Notify=False)`
 + 사전 잠김 확인 + 예외 후크까지 4겹으로 막아 **창 대신 기록만** 남게 했다.
+
+## site별 기간 CSV 스냅샷
+
+`export_master_schedule.py` 는 고객 일정 파일을 **직접 읽어** site_code 별 기간을 계산하고, 메일 수신 회차마다
+CSV 를 하나씩 남긴다. 워크북 수식 결과를 읽는 게 아니라 같은 계산을 Python 으로 옮긴 것이라 워크북이 없어도
+기간은 나온다. 어느 메일 회차에 어떤 기간이었는지 나중에 맞춰보려는 용도.
+
+| 항목 | 내용 |
+|---|---|
+| 입력 | `1.고객 법인 일정 파일/yymmdd_hhmm_*.xlsx` — CSV 가 없는 회차 + **최신 회차는 매번 재계산** (바뀌었을 때만 덮어씀) |
+| 출력 | `3.main_raw_schedule/schedule_<yymmdd>_<hhmm>.csv` — 파일명 = 고객 파일의 수신일시 prefix |
+| 칼럼 | `campaign, site_code, start_date, end_date, source_subs` — `campaign` 은 상단 `CAMPAIGN_ID`, `source_subs` 는 그 site 일정을 가져온 고객 파일 Subs 원본값(검수용) |
+| site 매핑 | 같은 폴더 `site_subs_map.csv` — `--build-map` 으로 워크북 `태깅기획site_code` 시트에서 만든다 |
+| 값 | 미참여 = start `X`, 일정 없음 = 빈칸 (워크북 `MASTER` 와 같은 표기) |
+| 제외 site | 상단 `EXCLUDE_SITES`(한 줄에 site_code 하나) ∪ `EXCLUDE_SOURCE_XLSX` 의 `MASTER` `api수기제외` = `O` 인 site (**매 회차** 다시 읽음). 제외 소스를 못 읽으면 그 회차는 SKIP — 제외가 빠진 CSV 를 쓰지 않는다 |
+
+조회 규칙(워크북 수식 이식): `법인-SITE` → `법인 (Base_LANG)` → `법인` → 정제 법인명 → 법인 코드의 `-` 앞부분 순으로 찾고,
+Participation 에 `O` 가 있으면 시작·종료일, `X` 면 start 에 `X`.
+
+```bash
+python export_master_schedule.py --build-map   # 처음 한 번: site 매핑 CSV 생성
+python export_master_schedule.py               # 새 회차 + 최신 회차
+python export_master_schedule.py --all         # 지난 회차도 다시 계산
+python export_master_schedule.py --check       # 최신 회차를 워크북 MASTER 와 대조
+```
 
 ## 예시 워크북
 

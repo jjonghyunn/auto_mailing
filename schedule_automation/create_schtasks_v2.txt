@@ -14,6 +14,7 @@
 :: 10:03 /mo 60  campaign_mail_check_status
 :: 10:04 /mo 20  campaign_schedule_update         (→ :24 :44 반복)
 :: 10:06 /mo 60  campaign_mail_check_url
+:: 10:10 /mo 20  campaign_export_master_schedule  (→ :30 :50 반복)  ← 일정 반영 뒤 site별 기간 CSV 스냅샷
 
 schtasks /create /tn campaign_mail_check /tr "\"C:\Python314\pythonw.exe\" \"C:\Users\user_name\OneDrive - company_name\user_id\work\campaign_schedule\check_mail_attachment_byname.py\"" /sc minute /mo 20 /st 10:01 /ed 2026/10/15 /it /f
 
@@ -47,3 +48,5 @@ powershell -Command "$names = 'campaign_mail_check','campaign_schedule_update','
 ::   자기 변수로 먼저 치환(빈 값)해버려 "foreach 뒤에 변수 이름이 없습니다" 오류 발생
 
 $names = 'campaign_mail_check','campaign_schedule_update','campaign_mail_check_status','campaign_mail_search_to_msg','campaign_summarize_msgs','campaign_mail_check_url'; foreach ($n in $names) { $t = Get-ScheduledTask -TaskName $n; $t.Settings.DisallowStartIfOnBatteries = $false; $t.Settings.StopIfGoingOnBatteries = $false; Set-ScheduledTask -InputObject $t }
+
+schtasks /create /tn campaign_export_master_schedule /tr "\"C:\Python314\pythonw.exe\" \"C:\Users\user_name\OneDrive - company_name\user_id\work\campaign_schedule\export_master_schedule.py\"" /sc minute /mo 20 /st 10:10 /ed 2026/10/15 /it /f
