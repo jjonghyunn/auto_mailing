@@ -30,6 +30,7 @@
 | `update_schedule_summary.md` | 위 스크립트 가이드 |
 | `26_Schedule(Auto)_example.xlsx` | 반영 대상 워크북이 어떻게 생겼는지 보여주는 예시 |
 | `export_master_schedule.py` | 고객 일정 파일 → site_code 별 기간 CSV 스냅샷 (메일 수신 회차 단위) |
+| `sync_urls_to_raw_url_sheet.py` | URL 목록 csv 에만 있는 TY URL 을 워크북 `RAW_URL,PageName` 시트에 추가 (사용 중이면 목록만 pending xlsx 로) |
 | `create_schtasks_v2.txt` | 작업 스케줄러 등록 명령어 + 실행 시각 배치 |
 | `check_mail_attachment.py` | (앞 세대) 첨부 감시 — **메일 제목** 키워드 |
 | `update_schedule.py` | (앞 세대) 요약 정제 단계 없이 일정 시트를 그대로 워크북에 반영 |
@@ -111,6 +112,30 @@ python export_master_schedule.py --build-map   # 처음 한 번: site 매핑 CSV
 python export_master_schedule.py               # 새 회차 + 최신 회차
 python export_master_schedule.py --all         # 지난 회차도 다시 계산
 python export_master_schedule.py --check       # 최신 회차를 워크북 MASTER 와 대조
+```
+
+## URL 목록 csv → `RAW_URL,PageName` TY 행 추가
+
+`sync_urls_to_raw_url_sheet.py` 는 `3.main_raw_schedule/urls.csv`(사람이 추가하는 이번 캠페인 URL 목록 —
+`campaign_id, sitecode, url, added_at`)에는 있는데 워크북 `RAW_URL,PageName` 시트 D열(B열 = `TY` 행만)에 없는 URL 을
+마지막 행 아래에 **B=TY / C=sitecode / D=url** 로 추가한다. `MASTER` 의 This Year URL·Page Name 칸이 이 시트의 TY 행을
+FILTER 로 끌어가므로, csv 에만 있는 URL 은 그대로 두면 `MASTER` 에 안 잡힌다.
+
+| 항목 | 내용 |
+|---|---|
+| 비교 | 공백·`http(s)://`·끝 `/`·대소문자 무시. **추가만** 한다 (기존 행·LY 행 무변경, E pagename 은 비워 둠) |
+| 쓰기 | **Excel COM 으로 셀에 직접** 쓰고 전체 재계산 → 저장 → 다시 읽어 검증. openpyxl 재저장을 하지 않아 동적 배열 수식(UNIQUE/FILTER)이 남는다. Excel 이 호출을 거부하면(`RPC_E_CALL_REJECTED`) 5초 간격 5번까지 재시도 |
+| 추가할 게 없으면 | 워크북을 열지 않는다 |
+| 사용 중일 때 | 잠금 파일 `~$…` 있음 / 읽기 전용으로 열림 / 저장·검증 실패 → 추가하려던 목록만 csv 옆 `urls_pending_raw_url.xlsx`(시트 `pending`, A=This/Last Year · **B=site_code · C=url** · D=added_at · E=reason · F=created_at)로 저장. 항상 같은 이름·최신 1개만 덮어쓰고, 반영할 게 없으면 헤더만 남긴 빈 파일로 둔다 |
+| 로그 / 종료코드 | 같은 폴더 `sync_urls_to_raw_url_sheet_last.log` (매번 덮어쓰기). 0 = 반영·추가 없음·읽기 실패 SKIP, 2 = 미반영(pending 저장), 1 = 예외 |
+
+- pending xlsx 를 워크북에서 외부 참조로 읽게 해 두면(예: `MASTER` URL 칸이 RAW 시트에 없을 때 `pending!B:C` 로 대체) 반영 전에도 URL 이 보인다. 그렇게 연결했다면 **파일 삭제·시트명·B/C 열 위치 변경 금지**.
+- 웹 Excel / 공동 편집으로 열려 있으면 잠금 파일이 안 생겨 사용 중을 감지 못 할 수 있다 (저장 후 검증에서 누락되면 pending 으로 남는다).
+- 같은 워크북을 쓰는 `campaign_schedule_update`(:04) · 읽는 `campaign_export_master_schedule`(:10) 과 안 겹치게 :14 에 건다 ([`create_schtasks_v2.txt`](create_schtasks_v2.txt)).
+
+```bash
+python sync_urls_to_raw_url_sheet.py --dry-run   # 추가 대상만 출력
+python sync_urls_to_raw_url_sheet.py             # 반영
 ```
 
 ## 예시 워크북
