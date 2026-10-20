@@ -1,5 +1,5 @@
 # schedule_automation — 메일 첨부 감시 → 워크북 자동 반영  
-<sub>2026-10-13  Jonghyun Park w/ Claude</sub>  
+<sub>2026-10-20  Jonghyun Park w/ Claude</sub>  
 
 메일함에 새 일정 파일이 오는지 지켜보다가, 오면 받아서 리포트 워크북에 반영하고
 지난번과 달라진 칸에 음영을 칠하는 데까지가 한 묶음이다.
@@ -96,10 +96,15 @@ CSV 를 하나씩 남긴다. 워크북 수식 결과를 읽는 게 아니라 같
 | 칼럼 | `campaign, site_code, start_date, end_date, source_subs` — `campaign` 은 상단 `CAMPAIGN_ID`, `source_subs` 는 그 site 일정을 가져온 고객 파일 Subs 원본값(검수용) |
 | site 매핑 | 같은 폴더 `site_subs_map.csv` — `--build-map` 으로 워크북 `태깅기획site_code` 시트에서 만든다 |
 | 값 | 미참여 = start `X`, 일정 없음 = 빈칸 (워크북 `MASTER` 와 같은 표기) |
-| 제외 site | 상단 `EXCLUDE_SITES`(한 줄에 site_code 하나) ∪ `EXCLUDE_SOURCE_XLSX` 의 `MASTER` `api수기제외` = `O` 인 site (**매 회차** 다시 읽음). 제외 소스를 못 읽으면 그 회차는 SKIP — 제외가 빠진 CSV 를 쓰지 않는다 |
+| 제외 site | 상단 `EXCLUDE_SITES`(한 줄에 site_code 하나) ∪ `EXCLUDE_SOURCE_XLSX` 의 `MASTER` `api수기제외` = `O` 인 site (**매 회차** 다시 읽음). 제외 소스를 못 읽으면(잠김·워크북 저장 도중 `BadZipFile` 포함) 그 회차는 SKIP — 제외가 빠진 CSV 를 쓰지 않는다 |
 
 조회 규칙(워크북 수식 이식): `법인-SITE` → `법인 (Base_LANG)` → `법인` → 정제 법인명 → 법인 코드의 `-` 앞부분 순으로 찾고,
 Participation 에 `O` 가 있으면 시작·종료일, `X` 면 start 에 `X`.
+
+- **정제 법인명은 하이픈 행을 쓰지 않는다** (2026-10-20). `SUBS-XX` 는 특정 site 를 지정한 행이라, 정제값으로 남기면
+  `SUBS-YY` 행도 `SUBS` 단독 행도 없는 같은 법인의 다른 site 가 XX 의 일정을 받는다. 이제 그런 site 는 빈칸이다.
+  괄호 행(`SUBS (Base_LANG)`)은 지금처럼 공백 앞부분만 남긴다. **워크북 `고객법인일정파일` O열 수식도 같은 규칙**이어야
+  CSV 와 워크북 결과가 같다 — C열에 `-` 가 있으면 `""` 를 돌려주도록 고칠 것.
 
 ```bash
 python export_master_schedule.py --build-map   # 처음 한 번: site 매핑 CSV 생성

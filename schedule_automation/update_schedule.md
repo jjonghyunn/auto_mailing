@@ -1,5 +1,5 @@
 # update_schedule.py · check_mail_attachment.py  
-<sub>2026-10-12  Jonghyun Park w/ Claude</sub>  
+<sub>2026-10-20  Jonghyun Park w/ Claude</sub>  
 
 ## 개요
 캠페인 법인별 일정 파일을 자동으로 Auto 정제 파일에 붙여넣는 스크립트.
@@ -35,6 +35,8 @@
 6. 이전 소스 파일과 비교해 변경된 셀에 노란 음영 표시
 7. win32com으로 Excel을 백그라운드 실행 → `CalculateFull()` → 재계산된 상태로 저장
    - `wb_com.Close()` 는 `try/except TypeError` 로 감싸져 있다 — `%TEMP%\gen_py\<파이썬버전>\` 타입라이브러리 캐시가 없으면(파이썬을 새로 깔면 비어 있음) win32com 이 **지연 바인딩**으로 동작해 `wb_com.Close` **속성 접근만으로 COM 메서드가 실행**되고 `True` 가 반환된다 → 이어지는 `()` 가 `TypeError: 'bool' object is not callable`. 그 시점엔 저장·닫기가 이미 끝났지만 **다음 줄인 마커 기록이 안 돼서** 다음 실행이 같은 소스를 재처리한다. `%TEMP%` 캐시는 디스크 정리로 언제든 사라지므로 gen_py 재생성이 아니라 코드로 막는다.
+   - `wb_com.Save()` 도 같은 지연 바인딩에서 `TypeError: 'bool' object is not callable` 로 죽는다 (2026-10-20) — 저장은 이미 끝난 뒤라 함께 무시한다.
+   - `excel.CalculateFull()` 은 방금 연 Excel 이 바쁘면 `RPC_E_CALL_REJECTED`(피호출자가 호출을 거부) 로 튕긴다 → `COM_RETRIES` 회, `COM_RETRY_WAIT_SEC` 초 간격으로 재시도한다.
    - 같은 이유로 `excel.Quit()` 도 `try/except (TypeError, AttributeError)` 로 감싼다 — 지연 바인딩에서 `AttributeError: Excel.Application.Quit` 로 죽어 저장 후 재검증·마커 기록이 건너뛰어진 사례가 있다.
    - Excel 은 `DispatchEx` 로 **전용 인스턴스**를 띄운다. `Dispatch` 는 사용자가 열어 둔 Excel 에 붙을 수 있어, 그 창을 숨기거나 `Quit` 로 닫아 버릴 위험이 있다.
 8. 저장 직후 Auto 파일을 다시 읽어 검증 → **통과했을 때만** 마커 파일에 소스 파일명·mtime 기록

@@ -1,10 +1,11 @@
 """
 update_schedule.py
+2026-10-20  Jonghyun Park w/ Claude  — wb_com.Save() 지연 바인딩 TypeError 무시 (Close/Quit 과 같은 처리)
+                                       + Excel 재계산(CalculateFull) 호출이 거부(RPC_E_CALL_REJECTED)되면 5초 간격 재시도
 2026-10-12  Jonghyun Park w/ Claude  — 저장명 앞 수신일시 prefix(yymmdd_hhmm_)가 있으면 그것만으로 최신 판정 (뒤 suffix 방식과 공존)
                                        + 소스에서 헤더가 Note 인 칼럼을 찾아 타겟 J열로 옮김 (NOTE_HEADER / NOTE_TARGET_COL)
                                        + AUTO_FILE_NAME 으로 대상 Auto 파일 고정 가능 (빈 값이면 종전처럼 *Auto*.xlsx 자동 탐색)
                                        + 소스 폴더가 비어 있으면 에러 대신 [SKIP] 으로 종료 (캠페인 초반 메일 도착 전 상태)
-2026-10-06  Jonghyun Park w/ Claude  — excel.Quit() 지연 바인딩 AttributeError 무시 + DispatchEx 로 별도 Excel 인스턴스 사용
 (이전 버전 이력은 git history / GitHub Releases 참조 — 헤더에는 최근 2개 항목만 남긴다)
 
 1. 1.고객 법인 일정 파일/ 폴더에서 최신 파일 자동 선택
@@ -39,6 +40,7 @@ import openpyxl
 from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 import win32com.client
+import pywintypes
 
 CHANGED_FILL = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 NO_FILL      = PatternFill(fill_type=None)
@@ -188,6 +190,8 @@ def merged_fill_map(ws) -> dict:
 # ── 재실행 판정 설정 ─────────────────────────────────────────
 STAMP_ROW         = 1      # 붙여넣은 소스 파일명을 기록·대조하는 셀 (D1) — 재실행 판정의 1차 키
 STAMP_COL         = 4
+COM_RETRIES       = 6         # Excel 이 막 열려 바쁠 때 COM 호출 거부(RPC_E_CALL_REJECTED) 재시도 횟수
+COM_RETRY_WAIT_SEC = 5
 FORCE_FLAG        = "--force"   # 이 인자를 주면 판정과 무관하게 다시 붙여넣는다
 # 저장 직후 재검증 재시도 — Excel 이 막 저장하고 핸들을 놓기 전 찰나에 읽으면 PermissionError 가 난다
 VERIFY_RETRIES    = 3
@@ -259,6 +263,9 @@ def target_is_saved(output_file: Path, source_name: str, src_data: list) -> tupl
             return False, f"{r_idx}행에 옛 데이터 잔재"
 
     return True, ""
+
+
+RPC_E_CALL_REJECTED = -2147418111
 
 
 # ── Auto 파일 자동 탐색 ──────────────────────────────────────
@@ -474,8 +481,21 @@ excel.Visible = False
 excel.DisplayAlerts = False      # Close/Quit 시 저장 확인 팝업 방지 (스케줄러 실행 대비)
 try:
     wb_com = excel.Workbooks.Open(str(output_file.resolve()))
-    excel.CalculateFull()
-    wb_com.Save()
+    # 방금 연 Excel 이 아직 바쁘면 '피호출자가 호출을 거부했습니다'(RPC_E_CALL_REJECTED) 로 튕긴다 → 잠시 뒤 재시도
+    for attempt in range(1, COM_RETRIES + 1):
+        try:
+            excel.CalculateFull()
+            break
+        except pywintypes.com_error as e:
+            if e.hresult != RPC_E_CALL_REJECTED or attempt == COM_RETRIES:
+                raise
+            print(f"[재시도] Excel 이 바빠 재계산 호출이 거부됐습니다 ({attempt}/{COM_RETRIES}) - {COM_RETRY_WAIT_SEC}초 후 다시 시도")
+            time.sleep(COM_RETRY_WAIT_SEC)
+    # Save 도 아래 Close 와 같은 지연 바인딩 문제로 TypeError('bool' object is not callable) 가 난다 — 저장은 이미 끝난 뒤라 무시
+    try:
+        wb_com.Save()
+    except (TypeError, AttributeError):
+        pass
     # ※ gen_py 캐시가 없으면(파이썬 새 버전 설치 직후 등) win32com 이 지연 바인딩으로 동작해
     #   `wb_com.Close` 는 속성 접근만으로 COM 메서드가 실행되고 bool(True) 을 돌려준다
     #   → 이어지는 `()` 가 TypeError: 'bool' object is not callable 로 죽는다.

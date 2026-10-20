@@ -1,9 +1,10 @@
 """
 export_master_schedule.py
+2026-10-20  Jonghyun Park w/ Claude  — O열 정제(ar_clean)에서 하이픈 행 제외 — `SUBS-XX` 같은 특정 site 행이
+                                       같은 법인의 다른 site 로 새던 것 수정 (Auto O열 수식도 같은 규칙으로 바꿀 것)
+                                       + Auto 저장 도중에 읽어 BadZipFile 이 나면 크래시 대신 이번 회차 SKIP
 2026-10-13  Jonghyun Park w/ Claude  — Auto MASTER 'api수기제외' 칼럼이 O 인 site 를 매 회차 읽어 자동 제외 (EXCLUDE_SOURCE_XLSX),
                                        최신 메일 회차 CSV 는 매 회차 다시 계산 (제외 목록 변경이 바로 반영되도록)
-2026-10-13  Jonghyun Park w/ Claude  — 검수용 5번째 칼럼 source_subs 추가 (site 가 매칭된 고객 파일 C열 Subs 원본값, 매칭 실패면 빈칸)
-                                       + 수기 제외 site 상수 EXCLUDE_SITES (한 줄에 site_code 하나)
 (이전 버전 이력은 git history / GitHub Releases 참조 — 헤더에는 최근 2개 항목만 남긴다)
 
 고객 법인 일정 파일(`1.고객 법인 일정 파일/yymmdd_hhmm_*.xlsx`)을 직접 읽어 site_code 별 Start/End 를 계산하고
@@ -30,6 +31,7 @@ import csv
 import io
 import re
 import sys
+import zipfile
 import datetime as dt
 from pathlib import Path
 import openpyxl
@@ -175,14 +177,16 @@ IB, IC, IE, IF_, IH = 0, 1, 3, 4, 6
 
 
 def ar_clean(row) -> str:
-    """O열 AR_clean: Region/Total/빈 행은 '', 그 외 C열의 '-' 또는 ' ' 앞부분. HQ_SUBS_KR 이면 HQ_SUBS_CLEAN."""
+    """O열 AR_clean: Region/Total/빈 행은 '', 하이픈 행(`SUBS-XX` 처럼 특정 site 지정)도 '' — 그 외 C열의 ' ' 앞부분.
+    HQ_SUBS_KR 이면 HQ_SUBS_CLEAN. 하이픈 행을 남기면 Subs-SITE·Subs 단독 행이 없는 같은 법인의 다른 site 가
+    그 나라 일정을 받는다 (2026-10-20 수정)."""
     c = row[IC]
     if not _blank(row[IB]) or _blank(c) or c == "Total":
         return ""
     c = str(c)
     if "-" in c:
-        v = c[:c.find("-")]
-    elif " " in c:
+        return ""
+    if " " in c:
         v = c[:c.find(" ")]
     else:
         v = c
@@ -329,7 +333,7 @@ def check_against_master(src: Path, results, excl: set) -> None:
     auto = BASE / AUTO_FILE_NAME
     try:
         wb = openpyxl.load_workbook(auto, data_only=True, read_only=True)
-    except (OSError, FileNotFoundError) as e:
+    except (OSError, zipfile.BadZipFile) as e:   # BadZipFile = Auto 저장 도중에 읽음
         print(f"[대조 생략] Auto 파일을 읽을 수 없음 ({type(e).__name__}: {e})")
         return
     try:
@@ -368,7 +372,7 @@ def main() -> int:
     manual = manual_excluded_sites()
     try:
         auto_excl = source_excluded_sites()
-    except (OSError, KeyError, ValueError) as e:
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile) as e:   # BadZipFile = Auto 저장 도중에 읽음 → 이번 회차 SKIP
         # 잠김 / 시트·칼럼 구조 변경 — 제외가 빠진 CSV 를 쓰지 않도록 이번 회차는 건너뛴다
         print(f"[SKIP] 제외 소스를 읽을 수 없음 ({type(e).__name__}: {e})")
         return 0
