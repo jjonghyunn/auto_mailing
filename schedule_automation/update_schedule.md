@@ -1,5 +1,5 @@
 # update_schedule.py · check_mail_attachment.py  
-<sub>2026-10-20  Jonghyun Park w/ Claude</sub>  
+<sub>2026-11-02  Jonghyun Park w/ Claude</sub>  
 
 ## 개요
 캠페인 법인별 일정 파일을 자동으로 Auto 정제 파일에 붙여넣는 스크립트.
@@ -11,7 +11,8 @@
 | 파일 | 역할 |
 |---|---|
 | `check_mail_attachment.py` | **메일 제목** 키워드로 첨부 감지 |
-| `update_schedule.py` | 최신 소스 선택 → Auto 워크북 반영 → 변경 셀 음영 → 강제 재계산 |
+| `update_schedule.py` | 최신 소스 선택 → Auto 워크북 반영 → 변경 셀 음영 → 강제 재계산 (쓰기는 전부 Excel COM) |
+| `restore_dynamic_arrays.py` | openpyxl 저장으로 CSE 배열로 바뀐 동적 배열 수식을 다시 동적 배열로 되돌리는 1회용 복구 도구 (아래 "동적 배열 수식 보존") |
 | `create_schtasks_v2.txt` | 작업 스케줄러 등록 명령어 모음 (감시 변형·정제판 기준 — 이 문서의 두 스크립트는 아래 "작업 스케줄러 등록" 명령을 쓴다) |
 
 > 이 문서는 일정 자동화의 **앞 세대** 도구 2개를 다룬다 — 제목 기준 첨부 감지와, 요약 정제 단계가 없는
@@ -28,12 +29,16 @@
    - `FILL_MERGED_COLS`(기본 E열 Participation) 열에서 **세로로 병합된 셀**은 병합된 모든 행에 같은 값을 채워 읽는다 —
      법인 여러 곳이 `O` 한 칸을 공유하는 일정표에서 아래쪽 법인이 빈칸으로 들어가던 문제 방지
 3. **Auto 파일에 그 결과가 실제로 저장돼 있는지 확인** → 이미 반영돼 있으면 `[SKIP]` 으로 종료 (아래 "재실행 판정")
-4. Auto 파일의 `고객법인일정파일` 시트 **B2:K999** 값·음영 클리어 후 **B2**부터 값 붙여넣기 (범위는 `TGT_*` 상수)
-   - 대상 영역과 겹치는 **병합셀은 클리어 전에 자동 해제** — `MergedCell` 은 값 설정이 불가(read-only)해서 그냥 두면 예외로 중단됨
+4. Excel COM(`DispatchEx`)으로 Auto 파일을 열어 `고객법인일정파일` 시트 **B2:K999** 값·음영 클리어 후 **B2**부터 값 붙여넣기 (범위는 `TGT_*` 상수)
+   - 파일이 다른 곳에서 열려 있어 **읽기 전용으로 열리면 `[SKIP]`** — 다음 정기 실행에서 다시 시도한다
+   - 대상 영역과 겹치는 **병합셀은 클리어 전에 자동 해제**
+   - 값은 2차원 배열로 한 번에 쓴다. **문자열은 앞에 `'` 를 붙여 텍스트로 유지** — 안 붙이면 `2026-11-16`, `11/16 (sign posting)` 같은 텍스트를 Excel 이 날짜·숫자로 바꿔 버린다.
+     날짜 값은 Excel 일련번호로 넣고 그 셀만 `YYYY-MM-DD` 서식 (pywin32 는 `datetime` 을 넣으면 시간대 보정으로 9시간 밀린다)
+   - 쓰는 동안은 계산을 수동으로 두고(`xlCalculationManual`) 저장 전에 자동으로 되돌린다 — 수식이 많은 Auto 에서 매 셀 재계산으로 COM 호출이 거부되는 것을 막는다
    - 소스가 B2B/B2C 2세트(B~N)로 확장된 일정표라면 `SRC_MAX_COL=14` / `TGT_MAX_COL=14` 로 바꾸고 `COMPARE` 에 `{8: 10, 10: 12}` 를 추가 (스크립트 상단 주석 참고)
 5. 같은 시트 **D1** 에 소스 파일명 기록 (어느 원본에서 왔는지 추적용)
 6. 이전 소스 파일과 비교해 변경된 셀에 노란 음영 표시
-7. win32com으로 Excel을 백그라운드 실행 → `CalculateFull()` → 재계산된 상태로 저장
+7. 같은 Excel 에서 `CalculateFull()` → 재계산된 상태로 저장 (4~7 이 한 번의 COM 세션)
    - `wb_com.Close()` 는 `try/except TypeError` 로 감싸져 있다 — `%TEMP%\gen_py\<파이썬버전>\` 타입라이브러리 캐시가 없으면(파이썬을 새로 깔면 비어 있음) win32com 이 **지연 바인딩**으로 동작해 `wb_com.Close` **속성 접근만으로 COM 메서드가 실행**되고 `True` 가 반환된다 → 이어지는 `()` 가 `TypeError: 'bool' object is not callable`. 그 시점엔 저장·닫기가 이미 끝났지만 **다음 줄인 마커 기록이 안 돼서** 다음 실행이 같은 소스를 재처리한다. `%TEMP%` 캐시는 디스크 정리로 언제든 사라지므로 gen_py 재생성이 아니라 코드로 막는다.
    - `wb_com.Save()` 도 같은 지연 바인딩에서 `TypeError: 'bool' object is not callable` 로 죽는다 (2026-10-20) — 저장은 이미 끝난 뒤라 함께 무시한다.
    - `excel.CalculateFull()` 은 방금 연 Excel 이 바쁘면 `RPC_E_CALL_REJECTED`(피호출자가 호출을 거부) 로 튕긴다 → `COM_RETRIES` 회, `COM_RETRY_WAIT_SEC` 초 간격으로 재시도한다.
@@ -55,6 +60,22 @@
 - 종전(마커만 비교)에는 저장 뒤 Auto 파일이 Excel·OneDrive 에 의해 되돌려지거나 붙여넣기가 어긋난 채 남으면 계속 SKIP 됐다.
 - 내용이 같아도 다시 붙여넣으려면 `python update_schedule.py --force`.
 - 마커 파일은 기록·경고용으로만 남는다. 지워도 판정에 영향이 없다.
+
+### 동적 배열 수식 보존 (2026-11-02)
+
+예전에는 4~6단계를 openpyxl 로 쓰고 저장했다. openpyxl 은 **동적 배열 메타데이터(셀의 `cm="1"` + `xl/metadata.xml`)를 버린다** —
+그래서 저장할 때마다 Auto 의 `FILTER` / `SORT` / `LET` / `HSTACK` 수식이 **고정 범위 CSE 배열**(`{=...}`)로 바뀌고,
+펼침 범위가 달라지면 `#VALUE!` · `#N/A` 가 났다 (수식을 지웠다 다시 넣으면 고쳐지지만 다음 회차에 또 깨짐).
+
+- 지금은 **쓰기 전체를 Excel COM 으로** 하므로 Excel 이 직접 저장해 동적 배열이 그대로 남는다. openpyxl 은 읽기(소스·재검증)에만 쓴다.
+- 이미 깨진 Auto 는 `restore_dynamic_arrays.py` 로 1회 복구한다 — 앵커 셀마다 `Formula2` 를 읽어 `CurrentArray` 를 지우고 다시 넣는다.
+  ```bash
+  python restore_dynamic_arrays.py                                  # dry-run: 앵커 상태만 출력
+  python restore_dynamic_arrays.py --apply                          # 복구 후 저장 (전/후 오류 셀 수 출력)
+  python restore_dynamic_arrays.py --reference <정상 xlsx> --apply  # 정상 파일의 cm="1" 셀을 앵커로 사용
+  python restore_dynamic_arrays.py --anchors "api용!B5,Appendix_URL!B10" --target <xlsx> --apply
+  ```
+  앵커는 워크북마다 다르다. 수기로 고친 정상본이 있으면 `--reference` 가 가장 확실하다. 실행 전 Auto 사본을 백업해 둘 것.
 
 ## 최신 파일 선택 기준
 파일명에서 아래 정렬 키를 추출하고, 가장 큰 튜플을 가진 파일을 최신으로 판단:
@@ -152,6 +173,11 @@ _v0.49_260420   → (260420, 0, 0.49, 0, 0)  ← 최신
 ```bash
 python update_schedule.py
 python update_schedule.py --force   # 판정과 무관하게 다시 붙여넣기
+
+# 테스트: 운영 Auto 대신 사본에 쓴다 (마커는 기록하지 않음)
+python update_schedule.py --target "C:\path\to\copy(Auto).xlsx" --force
+# 최신 대신 특정 회차 소스로 (파일명 앞부분) — --target 과 같이 쓴다
+python update_schedule.py --target "C:\path\to\copy(Auto).xlsx" --source 261102_1431 --force
 ```
 
 ## 스케줄 작업

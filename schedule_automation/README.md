@@ -34,7 +34,8 @@
 | `create_schtasks_v2.txt` | 작업 스케줄러 등록 명령어 + 실행 시각 배치 |
 | `check_mail_attachment.py` | (앞 세대) 첨부 감시 — **메일 제목** 키워드 |
 | `update_schedule.py` | (앞 세대) 요약 정제 단계 없이 일정 시트를 그대로 워크북에 반영 |
-| `update_schedule.md` | 위 2개 가이드 — 최신 파일 판정, 재실행 판정, 스케줄러 등록 |
+| `restore_dynamic_arrays.py` | openpyxl 저장으로 CSE 배열로 바뀐 동적 배열 수식(`FILTER`/`LET` 등)을 다시 동적 배열로 되돌리는 1회용 복구 도구 |
+| `update_schedule.md` | 위 3개 가이드 — 최신 파일 판정, 재실행 판정, 동적 배열 수식 보존, 스케줄러 등록 |
 | `26_Schedule_separate(Auto).md` / `-kr.md` | 반영 대상 워크북의 시트 구조 설명 (영/한) |
 | `enable_long_path.md` | 긴 경로(MAX_PATH) 설정 안내 |
 
