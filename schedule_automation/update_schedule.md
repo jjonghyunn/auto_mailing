@@ -74,8 +74,11 @@
   python restore_dynamic_arrays.py --apply                          # 복구 후 저장 (전/후 오류 셀 수 출력)
   python restore_dynamic_arrays.py --reference <정상 xlsx> --apply  # 정상 파일의 cm="1" 셀을 앵커로 사용
   python restore_dynamic_arrays.py --anchors "api용!B5,Appendix_URL!B10" --target <xlsx> --apply
+  python restore_dynamic_arrays.py --all                            # 파일 안 배열 수식 전부 대상 (dry-run)
+  python restore_dynamic_arrays.py --all --apply                    # 값이 그대로인 앵커만 동적 배열로 바꾼다
   ```
   앵커는 워크북마다 다르다. 수기로 고친 정상본이 있으면 `--reference` 가 가장 확실하다. 실행 전 Auto 사본을 백업해 둘 것.
+  정상본이 없거나 시트명에 콤마가 있으면 `--all` 을 쓴다. 변환 전후 값이 달라지거나 새 오류가 생긴 앵커는 원래 배열로 되돌리고 목록을 출력한다. 앵커가 많으면 10분 넘게 걸릴 수 있다.
 
 ## 최신 파일 선택 기준
 파일명에서 아래 정렬 키를 추출하고, 가장 큰 튜플을 가진 파일을 최신으로 판단:
