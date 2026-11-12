@@ -1,6 +1,8 @@
 r"""
 sync_urls_to_raw_url_sheet.py
-2026-10-20  Jonghyun Park w/ Claude  — 신규: urls.csv 에만 있는 TY URL 을 Auto 파일 `RAW_URL,PageName` 시트에 추가
+2026-11-12  Jonghyun Park w/ Claude  — 중복 감지 보강(www.·// 앞부분·공백도 무시) + B열 빈칸 행도 '이미 있음' 취급 + 예외 URL 상수 EXCLUDE_URLS (줄 단위)
+2026-10-30  Jonghyun Park w/ Claude  — 예외 규칙: urls_pending_raw_url.xlsx › exclude 시트에 걸린 URL 은 시트에 안 넣음 (pending 저장 시 exclude 시트 보존)
+(이전 버전 이력은 git history / GitHub Releases 참조 — 헤더에는 최근 2개 항목만 남긴다)
 
 왜 있나
   `<일정 폴더>\3.main_raw_schedule\urls.csv` = 이번 캠페인(TY) 법인 페이지 URL 목록 (사람이 추가 — added_at = 추가 시각).
@@ -11,8 +13,13 @@ sync_urls_to_raw_url_sheet.py
 
 동작
 1. urls.csv (campaign_id, sitecode, url, added_at) 를 읽는다. 같은 URL 은 첫 행만
-2. Auto 파일 `RAW_URL,PageName` 시트에서 **B열 = TY** 인 행의 D열 URL 목록과 대조
-   - 비교는 앞뒤 공백·`http(s)://`·끝 `/`·대소문자를 무시한다 (쓸 때는 urls.csv 값 그대로)
+   - 코드 상단 `EXCLUDE_URLS` (한 줄에 URL 하나) 와 정규화 후 완전일치하는 URL 은 버린다
+   - `PENDING_XLSX` 의 `exclude` 시트(A=규칙, B=메모)에 걸리는 URL 도 버린다 — urls.csv 는 안 고친다
+     규칙 = 부분일치 (예: `/business/`), `re:` 로 시작하면 정규식
+2. Auto 파일 `RAW_URL,PageName` 시트에서 **B열이 LY 가 아닌 행(TY + 빈칸)** 의 D열 URL 목록과 대조
+   - 비교는 공백·`http(s)://`·`www.`·끝 `/`·대소문자를 무시한다 (쓸 때는 urls.csv 값 그대로)
+     → `https://www.x.com/a/` 와 `x.com/a` 는 같은 URL
+   - B열 TY 를 지운 행 = 사람이 예외 처리한 행 → '이미 있음' 으로 보고 다시 넣지 않는다
    - LY 행은 보지도 건드리지도 않는다
 3. 시트에 없는 URL 만 마지막 행 아래에 B=TY / C=sitecode / D=url 로 추가 (E pagename 은 비워 둔다 — 사람이 채운다)
    - **추가만 한다.** csv 에서 지운 URL 을 시트에서 지우거나, 기존 행을 고치지 않는다
@@ -77,11 +84,24 @@ COL_SITE     = 3          # C = site_code
 COL_URL      = 4          # D = url
 LAST_DATA_COL = 6         # B~F 중 값이 있는 마지막 행 = 데이터 끝 (G~J 는 수식 spill 이라 제외)
 TY_LABEL     = "TY"
+LY_LABEL     = "LY"       # LY 행만 대조에서 뺀다 (B열 빈칸 행은 '이미 있음' 취급)
 NO_FORMULA   = '=IF(C{r}="","",ROW()-1)'   # A열이 비어 있는 새 행에만 채운다
 
 # ─── Excel COM 재시도 ───
 COM_RETRIES        = 5    # "피호출자가 호출을 거부했습니다"(Excel 이 아직 바쁨) 일 때 처음부터 다시 연다
 COM_RETRY_WAIT_SEC = 5
+
+# ─── 예외 URL (코드 상수) — 한 줄에 URL 하나, 따옴표·쉼표 없이 붙여넣기 ───
+#   비교는 정규화 후 완전일치 (http(s)://·www.·끝 /·대소문자 무시). `#` 으로 시작하는 줄은 주석
+EXCLUDE_URLS = """
+# 예) 조사는 했지만 시트에 넣지 않을 페이지 — 아래처럼 줄마다 하나씩
+# https://www.example.com/xx/offer/some-page/
+"""
+
+# ─── 예외(시트에 넣지 않을 URL) — PENDING_XLSX 의 별도 시트에서 사람이 관리 ───
+#   A열 = 규칙, B열 = 메모. 1행 헤더. 규칙은 URL 의 부분일치(정규화 후 비교 — http(s)://·끝 /·대소문자 무시)
+#   `re:` 로 시작하면 정규식 (원본 URL 대상, 대소문자 무시)
+EXCLUDE_SHEET = "exclude"
 
 # ─── urls.csv 칼럼 ───
 CSV_SITE_COL  = "sitecode"
@@ -93,7 +113,8 @@ AUTO_FILE = BASE / AUTO_FILE_NAME
 LOCK_FILE = BASE / f"~${AUTO_FILE_NAME}"   # Excel 이 열면 생기는 소유자 파일
 LOG_FILE  = Path(__file__).with_name("sync_urls_to_raw_url_sheet_last.log")
 DRY_RUN   = "--dry-run" in sys.argv
-_SCHEME   = re.compile(r"^https?://", re.I)
+_SCHEME   = re.compile(r"^(https?:)?//", re.I)
+_WWW      = re.compile(r"^www\.", re.I)
 RPC_E_CALL_REJECTED = -2147418111
 
 _log_lines = []
@@ -112,7 +133,9 @@ def flush_log():
 
 
 def norm(url):
-    return _SCHEME.sub("", str(url).strip()).rstrip("/").lower()
+    """중복 비교용 키 — 공백·http(s)://·www.·끝 / (여러 개도)·대소문자 무시"""
+    s = re.sub(r"\s+", "", str(url or ""))
+    return _WWW.sub("", _SCHEME.sub("", s)).rstrip("/").lower()
 
 
 def read_csv_urls():
@@ -128,8 +151,31 @@ def read_csv_urls():
     return out
 
 
+def read_excludes():
+    """PENDING_XLSX 의 EXCLUDE_SHEET → URL 하나를 받아 제외 여부를 돌려주는 함수 (시트·파일이 없으면 제외 없음)"""
+    const = {norm(l) for l in EXCLUDE_URLS.splitlines() if l.strip() and not l.strip().startswith("#")}
+    rules = [lambda u: norm(u) in const] if const else []
+    log(f"[예외] EXCLUDE_URLS 상수 {len(const)}건")
+    if PENDING_XLSX.exists():
+        wb = openpyxl.load_workbook(PENDING_XLSX, read_only=True, data_only=True)
+        try:
+            if EXCLUDE_SHEET in wb.sheetnames:
+                for (v,) in wb[EXCLUDE_SHEET].iter_rows(min_row=2, max_col=1, values_only=True):
+                    v = str(v or "").strip()
+                    if v.lower().startswith("re:"):
+                        rules.append(re.compile(v[3:].strip(), re.I).search)
+                    elif v:
+                        rules.append(lambda u, s=norm(v): s in norm(u))
+        finally:
+            wb.close()
+    log(f"[예외] {PENDING_XLSX.name} › {EXCLUDE_SHEET} 규칙 {len(rules) - (1 if const else 0)}건")
+    return lambda url: any(rule(url) for rule in rules)
+
+
 def read_sheet():
-    """(TY URL 정규화 set, 마지막 데이터 행)"""
+    """(이미 있는 URL 정규화 set, 마지막 데이터 행)
+    LY 가 아닌 행(TY + B열 빈칸)을 전부 '이미 있음'으로 본다 —
+    사람이 B열 TY 를 지운 행 = 예외 처리한 행이라 다시 넣지 않는다"""
     wb = openpyxl.load_workbook(AUTO_FILE, read_only=True, data_only=True)
     try:
         ws = wb[TARGET_SHEET]
@@ -138,7 +184,7 @@ def read_sheet():
                                   start=HEADER_ROWS + 1):
             if any(v not in (None, "") for v in r[COL_YEAR - 1:LAST_DATA_COL]):
                 last = r_idx
-            if str(r[COL_YEAR - 1] or "").strip().upper() == TY_LABEL and r[COL_URL - 1]:
+            if str(r[COL_YEAR - 1] or "").strip().upper() != LY_LABEL and r[COL_URL - 1]:
                 ty.add(norm(r[COL_URL - 1]))
         return ty, last
     finally:
@@ -148,10 +194,18 @@ def read_sheet():
 def write_pending(rows, reason):
     """반영 못 한 목록을 PENDING_XLSX 로 덮어쓰기 (rows 가 비면 헤더만 있는 빈 파일)
     열: A=This/Last Year · B=site_code · C=url · D=urls.csv added_at · E=reason · F=created_at
-    (B·C 는 Auto MASTER O열 외부 참조가 읽는다 — 순서 바꾸지 말 것)"""
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = PENDING_SHEET
+    (B·C 는 Auto MASTER O열 외부 참조가 읽는다 — 순서 바꾸지 말 것)
+    PENDING_SHEET 만 새로 만들고 다른 시트(EXCLUDE_SHEET 등)는 그대로 둔다"""
+    try:
+        wb = openpyxl.load_workbook(PENDING_XLSX) if PENDING_XLSX.exists() else openpyxl.Workbook()
+    except Exception:
+        log(f"[경고] {PENDING_XLSX.name} 를 읽지 못해 저장을 건너뜁니다 ({EXCLUDE_SHEET} 시트 보호)")
+        return
+    if PENDING_SHEET in wb.sheetnames:
+        del wb[PENDING_SHEET]
+    elif wb.sheetnames == ["Sheet"]:          # 새 워크북의 기본 시트
+        del wb["Sheet"]
+    ws = wb.create_sheet(PENDING_SHEET, 0)
     ws.append(["This/Last Year", "site_code", "url", "urls.csv added_at", "reason", "created_at"])
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for site, url, added in rows:
@@ -174,7 +228,7 @@ def clear_pending():
     if PENDING_XLSX.exists():
         try:
             wb = openpyxl.load_workbook(PENDING_XLSX, read_only=True)
-            empty = wb.active.max_row <= 1
+            empty = PENDING_SHEET in wb.sheetnames and wb[PENDING_SHEET].max_row <= 1
             wb.close()
             if empty:
                 return
@@ -240,8 +294,15 @@ def main():
     except (OSError, KeyError) as e:
         log(f"[SKIP] Auto 파일을 읽을 수 없습니다 ({type(e).__name__}: {e}). 다음 실행 시 재시도합니다")
         return 0
+    is_excluded = read_excludes()
+    excluded = [r for r in csv_rows if is_excluded(r[1])]
+    csv_rows = [r for r in csv_rows if r not in excluded]
+    if excluded:
+        log(f"[제외] 예외 규칙(EXCLUDE_URLS·{EXCLUDE_SHEET} 시트)에 걸린 {len(excluded)}건은 시트에 넣지 않습니다")
+        for site, url, _ in excluded:
+            log(f"   - {site:10s} {url}")
     missing = [r for r in csv_rows if norm(r[1]) not in ty]
-    log(f"[대조] urls.csv {len(csv_rows)}건 · 시트 TY URL {len(ty)}건 · 마지막 데이터 행 {last_row} → 추가 대상 {len(missing)}건")
+    log(f"[대조] urls.csv {len(csv_rows)}건 · 시트 TY/빈칸 URL {len(ty)}건 · 마지막 데이터 행 {last_row} → 추가 대상 {len(missing)}건")
     for site, url, added in missing:
         log(f"   + {site:10s} {url}  (added_at {added})")
 

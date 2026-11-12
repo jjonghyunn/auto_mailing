@@ -118,16 +118,18 @@ python export_master_schedule.py --check       # 최신 회차를 워크북 MAST
 ## URL 목록 csv → `RAW_URL,PageName` TY 행 추가
 
 `sync_urls_to_raw_url_sheet.py` 는 `3.main_raw_schedule/urls.csv`(사람이 추가하는 이번 캠페인 URL 목록 —
-`campaign_id, sitecode, url, added_at`)에는 있는데 워크북 `RAW_URL,PageName` 시트 D열(B열 = `TY` 행만)에 없는 URL 을
+`campaign_id, sitecode, url, added_at`)에는 있는데 워크북 `RAW_URL,PageName` 시트 D열(B열이 `LY` 가 아닌 행 — TY + 빈칸)에 없는 URL 을
 마지막 행 아래에 **B=TY / C=sitecode / D=url** 로 추가한다. `MASTER` 의 This Year URL·Page Name 칸이 이 시트의 TY 행을
 FILTER 로 끌어가므로, csv 에만 있는 URL 은 그대로 두면 `MASTER` 에 안 잡힌다.
 
 | 항목 | 내용 |
 |---|---|
-| 비교 | 공백·`http(s)://`·끝 `/`·대소문자 무시. **추가만** 한다 (기존 행·LY 행 무변경, E pagename 은 비워 둠) |
+| 비교 | 공백·`http(s)://`·`www.`·끝 `/`·대소문자 무시 (`https://www.x.com/a/` = `x.com/a`). **추가만** 한다 (기존 행·LY 행 무변경, E pagename 은 비워 둠) |
+| B열 빈칸 행 | TY 를 지운 행 = 사람이 예외 처리한 행 → '이미 있음' 으로 보고 다시 넣지 않는다 |
+| 예외 | ① 코드 상단 `EXCLUDE_URLS` — 따옴표·쉼표 없이 **한 줄에 URL 하나** (`#` 줄은 주석), 정규화 후 완전일치 ② pending xlsx 의 `exclude` 시트 — A=규칙(부분일치, `re:` 로 시작하면 정규식) · B=메모. 둘 다 csv 는 안 고친다 |
 | 쓰기 | **Excel COM 으로 셀에 직접** 쓰고 전체 재계산 → 저장 → 다시 읽어 검증. openpyxl 재저장을 하지 않아 동적 배열 수식(UNIQUE/FILTER)이 남는다. Excel 이 호출을 거부하면(`RPC_E_CALL_REJECTED`) 5초 간격 5번까지 재시도 |
 | 추가할 게 없으면 | 워크북을 열지 않는다 |
-| 사용 중일 때 | 잠금 파일 `~$…` 있음 / 읽기 전용으로 열림 / 저장·검증 실패 → 추가하려던 목록만 csv 옆 `urls_pending_raw_url.xlsx`(시트 `pending`, A=This/Last Year · **B=site_code · C=url** · D=added_at · E=reason · F=created_at)로 저장. 항상 같은 이름·최신 1개만 덮어쓰고, 반영할 게 없으면 헤더만 남긴 빈 파일로 둔다 |
+| 사용 중일 때 | 잠금 파일 `~$…` 있음 / 읽기 전용으로 열림 / 저장·검증 실패 → 추가하려던 목록만 csv 옆 `urls_pending_raw_url.xlsx`(시트 `pending`, A=This/Last Year · **B=site_code · C=url** · D=added_at · E=reason · F=created_at)로 저장. 항상 같은 이름·최신 1개만 덮어쓰고(`pending` 시트만 교체 — `exclude` 시트는 보존), 반영할 게 없으면 헤더만 남긴 빈 파일로 둔다 |
 | 로그 / 종료코드 | 같은 폴더 `sync_urls_to_raw_url_sheet_last.log` (매번 덮어쓰기). 0 = 반영·추가 없음·읽기 실패 SKIP, 2 = 미반영(pending 저장), 1 = 예외 |
 
 - pending xlsx 를 워크북에서 외부 참조로 읽게 해 두면(예: `MASTER` URL 칸이 RAW 시트에 없을 때 `pending!B:C` 로 대체) 반영 전에도 URL 이 보인다. 그렇게 연결했다면 **파일 삭제·시트명·B/C 열 위치 변경 금지**.
