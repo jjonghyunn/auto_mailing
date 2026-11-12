@@ -1,10 +1,10 @@
 """
 update_schedule.py
+2026-11-12  Jonghyun Park w/ Claude  — 파일을 연 직후 호출 거부로 죽던 곳 보강: Excel 준비 대기(_wait_excel_ready), Worksheets.Count 도 _com_retry.
+                                       + 1900-03-01 이전 날짜(날짜 서식이 걸린 주차 숫자 등)를 Excel 1900년 윤년 버그만큼 보정해 저장 직후 검증 실패 방지
 2026-11-02  Jonghyun Park w/ Claude  — Auto 쓰기를 openpyxl → Excel COM 으로 전환. openpyxl 저장이 동적 배열 메타데이터(cm="1"·metadata.xml)를
                                        버려 FILTER/SORT/LET 수식이 고정 범위 CSE 배열로 바뀌고 #VALUE!·#N/A 가 나던 문제.
                                        문자열은 ' 접두로 텍스트 유지, 날짜는 일련번호. 테스트용 --target <xlsx> / --source <파일명 앞부분> 추가 (마커 기록 안 함)
-2026-10-20  Jonghyun Park w/ Claude  — wb_com.Save() 지연 바인딩 TypeError 무시 (Close/Quit 과 같은 처리)
-                                       + Excel 재계산(CalculateFull) 호출이 거부(RPC_E_CALL_REJECTED)되면 5초 간격 재시도
 (이전 버전 이력은 git history / GitHub Releases 참조 — 헤더에는 최근 2개 항목만 남긴다)
 
 1. 1.고객 법인 일정 파일/ 폴더에서 최신 파일 자동 선택
@@ -46,6 +46,7 @@ CHANGED_COLOR = 0x00FFFF       # 변경 셀 음영 — Excel COM Interior.Color 
 XL_COLOR_NONE = -4142          # xlColorIndexNone (음영 지움)
 XL_CALC_MANUAL, XL_CALC_AUTOMATIC = -4135, -4105   # xlCalculationManual / xlCalculationAutomatic
 EXCEL_EPOCH   = dt.date(1899, 12, 30)   # Excel 날짜 일련번호 기준일 — pywin32 datetime 은 UTC 9시간 밀림이 있어 일련번호로 쓴다
+EXCEL_LEAP_END = dt.date(1900, 3, 1)    # 이 날짜 이전은 Excel 1900년 윤년 버그로 일련번호가 1 작다
 
 
 # 저장명 앞 수신일시 prefix — 첨부를 항상 `yymmdd_hhmm_<원본명>` 으로 저장하는 감시 스크립트와 짝
@@ -452,17 +453,29 @@ def _com_retry(fn):
             time.sleep(COM_RETRY_WAIT_SEC)
 
 
+def _wait_excel_ready(xl) -> None:
+    """Excel 이 호출을 받을 수 있을 때까지 기다린다. 시간이 지나도 바쁘면 그대로 진행한다."""
+    for _ in range(COM_RETRIES * COM_RETRY_WAIT_SEC):
+        if _com_retry(lambda: xl.Ready):
+            return
+        time.sleep(1)
+
+
 def _com_value(v):
     """Value2 로 쓸 값 — 문자열은 ' 접두로 텍스트 유지 (안 붙이면 '2026-11-16'·'11/16 …' 을 Excel 이 날짜로 바꾼다),
-    날짜는 일련번호 (pywin32 datetime 은 9시간 밀림)."""
+    날짜는 일련번호 (pywin32 datetime 은 9시간 밀림).
+    EXCEL_LEAP_END 이전은 Excel 의 1900년 윤년 버그로 일련번호가 1 작다 — 소스의 주차 숫자(45)가 날짜 서식이면
+    openpyxl 이 1900-02-14 로 읽는데, 보정하지 않으면 46 으로 쓰여 저장 직후 검증이 매번 실패한다."""
     if v is None:
         return None
     if isinstance(v, str):
         return "'" + v if v != "" else None
     if isinstance(v, dt.datetime):
-        return (v - dt.datetime.combine(EXCEL_EPOCH, dt.time())).total_seconds() / 86400
+        serial = (v - dt.datetime.combine(EXCEL_EPOCH, dt.time())).total_seconds() / 86400
+        return serial - 1 if v.date() < EXCEL_LEAP_END else serial
     if isinstance(v, dt.date):
-        return (v - EXCEL_EPOCH).days
+        serial = (v - EXCEL_EPOCH).days
+        return serial - 1 if v < EXCEL_LEAP_END else serial
     return v
 
 
@@ -498,7 +511,9 @@ try:
     # 쓰는 동안 자동 재계산을 끈다 — 켜 두면 값 붙여넣기 직후 재계산 중인 Excel 이 다음 호출을 거부한다
     # (RPC_E_CALL_REJECTED, 2026-11-02 테스트에서 NumberFormat 설정 시 발생). 마지막에 CalculateFull 로 한 번에 계산.
     _com_retry(lambda: setattr(excel, "Calculation", XL_CALC_MANUAL))
-    sheet_names = [_com_retry(lambda i=i: wb_com.Worksheets(i).Name) for i in range(1, wb_com.Worksheets.Count + 1)]
+    _wait_excel_ready(excel)   # 파일을 연 직후 Excel 이 바쁜 동안은 재시도 없는 호출이 거부된다
+    sheet_count = _com_retry(lambda: wb_com.Worksheets.Count)
+    sheet_names = [_com_retry(lambda i=i: wb_com.Worksheets(i).Name) for i in range(1, sheet_count + 1)]
     if TARGET_SHEET not in sheet_names:
         raise ValueError(f"'{TARGET_SHEET}' 시트를 찾을 수 없습니다. 시트 목록: {sheet_names}")
     tgt_ws = wb_com.Worksheets(TARGET_SHEET)

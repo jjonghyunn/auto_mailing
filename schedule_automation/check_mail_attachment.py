@@ -1,8 +1,9 @@
 """
 check_mail_attachment.py
+2026-11-12  Jonghyun Park w/ Claude  — 제목이 안 맞아도 첨부파일명에 ATTACHMENT_NAME_KEYS 가 모두 있으면 그 첨부를 저장
+                                       (법인 일정 파일이 다른 현황 메일 FW 에 첨부로 붙어 와 제목 필터에 안 걸리던 경우)
 2026-10-12  Jonghyun Park w/ Claude  — 저장명 앞에 수신일시(yymmdd_hhmm_) prefix 를 항상 붙인다 (기존: 중복일 때만 뒤에 _yymmdd_HHMM)
                                        + RECEIVED_FROM: 지정 날짜(당일 포함) 이후 받은 메일만 처리 — 캠페인 폴더를 복사해 쓸 때 지난 캠페인 메일 재수집 방지
-2026-07-22  Jonghyun Park w/ Claude  — 중복 suffix _yymmdd → _yymmdd_HHMM
 (이전 버전 이력은 git history / GitHub Releases 참조 — 헤더에는 최근 2개 항목만 남긴다)
 
 [mailbox] 받은편함에서 CAMPAIGN NAME 법인별 일정 첨부파일을 감지해 저장.
@@ -24,7 +25,10 @@ SAVE_FOLDER  = Path(
     r"\02. SCHEDULE\1.고객 법인 일정 파일"
 )
 STORE_NAME   = "part_name mailbox"
-SUBJECT_KEYS = ["campaign name", "법인별"]  # 모두 포함된 메일만
+SUBJECT_KEYS = ["campaign name", "법인별"]  # 모두 포함된 메일만 (이 메일의 xlsx 첨부는 전부 저장)
+# 제목이 안 맞아도 **첨부파일명**에 이 키가 모두 들어 있으면 그 첨부만 저장한다 (소문자 매칭). [] 면 미사용.
+# 법인 일정 파일이 다른 현황 메일 FW 에 첨부로 붙어 오는 경우 대비.
+ATTACHMENT_NAME_KEYS = ["campaign name", "법인별"]
 MARKER_FILE  = Path(r"C:\Users\user_name\Documents\campaign_mail_processed_ids.txt")
 # 받은 날짜가 이 날짜 이상인 메일만 처리 — **이 날짜 당일 포함** (예: 9/29 → 9/29 받은 메일부터). None = 전체
 # 지난 캠페인 폴더를 복사해 새 캠페인을 시작할 때, 같은 키워드의 옛 메일을 다시 집어오지 않게 캠페인 시작일을 넣는다.
@@ -69,8 +73,16 @@ for mail in inbox.Items:
     except Exception:
         continue
 
-    if not all(k in subject for k in SUBJECT_KEYS):
-        continue
+    subject_ok = all(k in subject for k in SUBJECT_KEYS)
+    if not subject_ok:
+        if not ATTACHMENT_NAME_KEYS:
+            continue
+        try:
+            att_names = [a.FileName.lower() for a in mail.Attachments]
+        except Exception:
+            continue
+        if not any(all(k in n for k in ATTACHMENT_NAME_KEYS) for n in att_names):
+            continue
 
     if RECEIVED_FROM:
         rt = mail.ReceivedTime
@@ -88,6 +100,8 @@ for mail in inbox.Items:
         name = att.FileName
         if not name.lower().endswith(".xlsx"):
             continue
+        if not subject_ok and not all(k in name.lower() for k in ATTACHMENT_NAME_KEYS):
+            continue                # 제목으로 안 걸린 메일은 키가 든 첨부만 (같은 메일의 다른 첨부는 건너뜀)
 
         # 저장명 = 수신일시(yymmdd_hhmm_) + 원본 첨부명 — 같은 이름이 다시 와도 수신 시각으로 구분된다
         suffix = Path(name).suffix

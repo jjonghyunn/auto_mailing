@@ -1,5 +1,5 @@
 # update_schedule.py · check_mail_attachment.py  
-<sub>2026-11-02  Jonghyun Park w/ Claude</sub>  
+<sub>2026-11-12  Jonghyun Park w/ Claude</sub>  
 
 ## 개요
 캠페인 법인별 일정 파일을 자동으로 Auto 정제 파일에 붙여넣는 스크립트.
@@ -10,7 +10,7 @@
 
 | 파일 | 역할 |
 |---|---|
-| `check_mail_attachment.py` | **메일 제목** 키워드로 첨부 감지 |
+| `check_mail_attachment.py` | **메일 제목** 키워드로 첨부 감지 (제목이 안 맞으면 첨부파일명 키워드로 보조 감지) |
 | `update_schedule.py` | 최신 소스 선택 → Auto 워크북 반영 → 변경 셀 음영 → 강제 재계산 (쓰기는 전부 Excel COM) |
 | `restore_dynamic_arrays.py` | openpyxl 저장으로 CSE 배열로 바뀐 동적 배열 수식을 다시 동적 배열로 되돌리는 1회용 복구 도구 (아래 "동적 배열 수식 보존") |
 | `create_schtasks_v2.txt` | 작업 스케줄러 등록 명령어 모음 (감시 변형·정제판 기준 — 이 문서의 두 스크립트는 아래 "작업 스케줄러 등록" 명령을 쓴다) |
@@ -34,6 +34,7 @@
    - 대상 영역과 겹치는 **병합셀은 클리어 전에 자동 해제**
    - 값은 2차원 배열로 한 번에 쓴다. **문자열은 앞에 `'` 를 붙여 텍스트로 유지** — 안 붙이면 `2026-11-16`, `11/16 (sign posting)` 같은 텍스트를 Excel 이 날짜·숫자로 바꿔 버린다.
      날짜 값은 Excel 일련번호로 넣고 그 셀만 `YYYY-MM-DD` 서식 (pywin32 는 `datetime` 을 넣으면 시간대 보정으로 9시간 밀린다)
+     1900-03-01 이전 날짜는 Excel 1900년 윤년 버그만큼 1 을 빼서 넣는다 — 날짜 서식이 걸린 주차 숫자(45)가 1900-02-14 로 읽혀 46 으로 쓰이고 저장 직후 검증이 매번 실패하던 문제
    - 쓰는 동안은 계산을 수동으로 두고(`xlCalculationManual`) 저장 전에 자동으로 되돌린다 — 수식이 많은 Auto 에서 매 셀 재계산으로 COM 호출이 거부되는 것을 막는다
    - 소스가 B2B/B2C 2세트(B~N)로 확장된 일정표라면 `SRC_MAX_COL=14` / `TGT_MAX_COL=14` 로 바꾸고 `COMPARE` 에 `{8: 10, 10: 12}` 를 추가 (스크립트 상단 주석 참고)
 5. 같은 시트 **D1** 에 소스 파일명 기록 (어느 원본에서 왔는지 추적용)
@@ -42,6 +43,7 @@
    - `wb_com.Close()` 는 `try/except TypeError` 로 감싸져 있다 — `%TEMP%\gen_py\<파이썬버전>\` 타입라이브러리 캐시가 없으면(파이썬을 새로 깔면 비어 있음) win32com 이 **지연 바인딩**으로 동작해 `wb_com.Close` **속성 접근만으로 COM 메서드가 실행**되고 `True` 가 반환된다 → 이어지는 `()` 가 `TypeError: 'bool' object is not callable`. 그 시점엔 저장·닫기가 이미 끝났지만 **다음 줄인 마커 기록이 안 돼서** 다음 실행이 같은 소스를 재처리한다. `%TEMP%` 캐시는 디스크 정리로 언제든 사라지므로 gen_py 재생성이 아니라 코드로 막는다.
    - `wb_com.Save()` 도 같은 지연 바인딩에서 `TypeError: 'bool' object is not callable` 로 죽는다 (2026-10-20) — 저장은 이미 끝난 뒤라 함께 무시한다.
    - `excel.CalculateFull()` 은 방금 연 Excel 이 바쁘면 `RPC_E_CALL_REJECTED`(피호출자가 호출을 거부) 로 튕긴다 → `COM_RETRIES` 회, `COM_RETRY_WAIT_SEC` 초 간격으로 재시도한다.
+   - 파일을 연 직후엔 `Worksheets.Count` 같은 재시도 없는 호출도 같은 이유로 거부된다 → 열고 나서 `excel.Ready` 가 될 때까지 기다리고(`_wait_excel_ready`), 시트 수 조회도 재시도로 감쌌다.
    - 같은 이유로 `excel.Quit()` 도 `try/except (TypeError, AttributeError)` 로 감싼다 — 지연 바인딩에서 `AttributeError: Excel.Application.Quit` 로 죽어 저장 후 재검증·마커 기록이 건너뛰어진 사례가 있다.
    - Excel 은 `DispatchEx` 로 **전용 인스턴스**를 띄운다. `Dispatch` 는 사용자가 열어 둔 Excel 에 붙을 수 있어, 그 창을 숨기거나 `Quit` 로 닫아 버릴 위험이 있다.
 8. 저장 직후 Auto 파일을 다시 읽어 검증 → **통과했을 때만** 마커 파일에 소스 파일명·mtime 기록
@@ -281,8 +283,9 @@ Outlook 수신함을 폴링해 일정 파일 첨부를 자동으로 로컬에 �
 
 1. `win32com.client`로 Outlook 접근 — 기본 프로필이 아니라 **`STORE_NAME` 과 이름이 일치하는 메일함(store)** 을 찾아 그 받은편지함을 연다. 공유 메일함을 쓰므로 실행 전 스크립트 상단 `STORE_NAME` 을 본인 환경의 메일함 이름으로 반드시 교체할 것 (못 찾으면 그대로 종료)
 2. 제목 필터 조건에 맞는 메일만 선별 (스크립트 상단 `SUBJECT_KEYS` 참고)
+   - 제목이 안 맞아도 **첨부파일명**에 `ATTACHMENT_NAME_KEYS` 가 모두 들어 있으면 그 첨부만 저장한다 — 일정 파일이 다른 현황 메일 FW 에 붙어 오는 경우 대비. `[]` 면 끈다
 3. 처리 이력(`campaign_mail_processed_ids.txt`)에 없는 메일만 처리
-4. `.xlsx` 첨부파일을 지정 폴더에 저장
+4. `.xlsx` 첨부파일을 지정 폴더에 저장 (첨부파일명으로 걸린 메일은 키가 든 첨부만)
 5. 처리한 메일의 EntryID를 이력 파일에 추가
 
 ### 실행 방법
