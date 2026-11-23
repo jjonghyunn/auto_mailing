@@ -95,10 +95,15 @@ CSV 를 하나씩 남긴다. 워크북 수식 결과를 읽는 게 아니라 같
 |---|---|
 | 입력 | `1.고객 법인 일정 파일/yymmdd_hhmm_*.xlsx` — CSV 가 없는 회차 + **최신 회차는 매번 재계산** (바뀌었을 때만 덮어씀) |
 | 출력 | `3.main_raw_schedule/schedule_<yymmdd>_<hhmm>.csv` — 파일명 = 고객 파일의 수신일시 prefix |
-| 칼럼 | `campaign, site_code, start_date, end_date, source_subs` — `campaign` 은 상단 `CAMPAIGN_ID`, `source_subs` 는 그 site 일정을 가져온 고객 파일 Subs 원본값(검수용) |
+| 칼럼 | `campaign, site_code, phase, start_date, end_date, source_subs, note, team_note` — `campaign` 은 상단 `CAMPAIGN_ID`, `source_subs` 는 그 site 일정을 가져온 고객 파일 Subs 원본값(검수용), `note` 는 고객 파일 Note 원문, `team_note` 는 정제·GRO 비교 메모 |
+| phase | `0` Handraiser · `1` Early(Pre-sale) · `2` Main. 0·1 행은 참여 site 중 그 기간이 있는 site 만, 2 행은 모든 site. 고객 파일 헤더에서 `Main`·`Early`/`Pre-sale`·`Handraiser` 그룹 아래 Starts/Ends 를 찾는다 (그룹이 없으면 그 phase 행은 안 나옴) |
+| Early 정제 | Early Ends 가 Main Starts 와 같거나 뒤면 Main 전날로 자르고 `team_note` 에 기록 (`EARLY_OVERLAP_TRIM_ENABLED`). 공백 연장(`EARLY_GAP_EXTEND_ENABLED`)은 기본 꺼짐 |
+| GRO 비교 | 그 회차 이후 도착한 GRO Status 최신 1개와 Main·Early 날짜가 다르면 `team_note` 에 한 줄 (`GRO_NOTE_ENABLED`, `GRO_PRE_ENABLED`). GRO 열은 헤더 이름으로 찾는다 |
+| 팀원 발신 제외 | 고객 파일을 보낸 메일 발신 주소가 `TEAM_SENDER_DOMAINS` 면 처리하지 않는다. 발신자는 수신일시 prefix + 첨부명으로 받은편지함에서 찾아 `_source_sender_cache.csv` 에 남긴다. 받은편지함에 메일이 없는 파일(폴더에 직접 넣은 수기본)은 수기 파일로 처리 (`NO_MAIL_AS_MANUAL`). Outlook 조회 자체가 실패한 회차의 새 파일만 보류 |
+| backup | 같은 CSV 를 `OUTPUT_COPY_DIR`(스크립트 폴더 하위 `3.main_raw_schedule`)에도 저장. `None` 이면 끔 |
 | site 매핑 | 같은 폴더 `site_subs_map.csv` — `--build-map` 으로 워크북 `태깅기획site_code` 시트에서 만든다 |
 | 값 | 미참여 = start `X`, 일정 없음 = 빈칸 (워크북 `MASTER` 와 같은 표기) |
-| 제외 site | 상단 `EXCLUDE_SITES`(한 줄에 site_code 하나) ∪ `EXCLUDE_SOURCE_XLSX` 의 `MASTER` `api수기제외` = `O` 인 site (**매 회차** 다시 읽음). 제외 소스를 못 읽으면(잠김·워크북 저장 도중 `BadZipFile` 포함) 그 회차는 SKIP — 제외가 빠진 CSV 를 쓰지 않는다 |
+| 제외 site | 상단 `EXCLUDE_SITES`(한 줄에 site_code 하나) ∪ `EXCLUDE_SOURCE_XLSX` 의 `MASTER` `api수기제외` = `O` 인 site (**매 회차** 다시 읽음). 제외 소스는 공유모드로 읽고, 그래도 못 읽으면 마지막으로 읽은 목록(`_exclude_source_cache.txt`)을 쓴다. 캐시도 없으면 그 회차는 SKIP — 제외가 빠진 CSV 를 쓰지 않는다 |
 
 조회 규칙(워크북 수식 이식): `법인-SITE` → `법인 (Base_LANG)` → `법인` → 정제 법인명 → 법인 코드의 `-` 앞부분 순으로 찾고,
 Participation 에 `O` 가 있으면 시작·종료일, `X` 면 start 에 `X`.
@@ -107,6 +112,8 @@ Participation 에 `O` 가 있으면 시작·종료일, `X` 면 start 에 `X`.
   `SUBS-YY` 행도 `SUBS` 단독 행도 없는 같은 법인의 다른 site 가 XX 의 일정을 받는다. 이제 그런 site 는 빈칸이다.
   괄호 행(`SUBS (Base_LANG)`)은 지금처럼 공백 앞부분만 남긴다. **워크북 `고객법인일정파일` O열 수식도 같은 규칙**이어야
   CSV 와 워크북 결과가 같다 — C열에 `-` 가 있으면 `""` 를 돌려주도록 고칠 것.
+
+- **열 위치 상수는 워크북 배치에 맞출 것.** 기본값은 `MASTER` 가 H/I Handraiser · J/K Early · L/M Main · N `api수기제외` 인 배치다. `26_Schedule(Auto)_example.xlsx` 처럼 H/I Main · J `api수기제외` 만 있는 워크북이면 `EXCLUDE_SOURCE_FLAG_COL` 과 `MASTER_COLS` 를 그 열로 바꾼다.
 
 ```bash
 python export_master_schedule.py --build-map   # 처음 한 번: site 매핑 CSV 생성

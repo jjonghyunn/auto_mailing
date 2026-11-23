@@ -12,3 +12,9 @@ old/
 *backup*
 *(편집)*
 *sample*
+
+# export_master_schedule.py 실행 시 생기는 캐시·매핑·출력 (실제 발신자·site 정보) — 커밋 금지
+_source_sender_cache.csv
+_exclude_source_cache.txt
+site_subs_map.csv
+3.main_raw_schedule/
